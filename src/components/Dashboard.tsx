@@ -14,6 +14,7 @@ interface LiveStats {
 interface DashboardProps {
   onConnectInverter: () => void;
   onOpenProfile: () => void;
+  onOpenHelp: () => void;
   onSignOut: () => void;
 }
 
@@ -24,7 +25,12 @@ const modes = [
   { id: 'holiday' as Mode, label: 'Holiday Mode', color: '#8B5CF6', icon: '🏖️' },
 ];
 
-export default function Dashboard({ onConnectInverter, onOpenProfile, onSignOut }: DashboardProps) {
+export default function Dashboard({ 
+  onConnectInverter, 
+  onOpenProfile, 
+  onOpenHelp, 
+  onSignOut 
+}: DashboardProps) {
   const [activeMode, setActiveMode] = useState<Mode>('storm');
   const [stats, setStats] = useState<LiveStats>({
     battery: 87,
@@ -77,11 +83,11 @@ export default function Dashboard({ onConnectInverter, onOpenProfile, onSignOut 
     setDataSource('simulated');
   };
 
-  // Get first letter for avatar
   const avatarLetter = userEmail ? userEmail.charAt(0).toUpperCase() : '?';
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '24px' }}>
+      
       {/* Header */}
       <div style={{ 
         display: 'flex', 
@@ -94,9 +100,27 @@ export default function Dashboard({ onConnectInverter, onOpenProfile, onSignOut 
           <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '15px' }}>Pilot Dashboard</p>
         </div>
 
-        {/* Right side: Email + Avatar + Sign Out */}
+        {/* Right side controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ color: '#64748b', fontSize: '14px' }}>{userEmail}</span>
+
+          {/* Help Button */}
+          <button
+            onClick={onOpenHelp}
+            style={{
+              padding: '8px 16px',
+              background: '#f1f5f9',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            ❓ Help
+          </button>
 
           {/* User Avatar */}
           <div 
