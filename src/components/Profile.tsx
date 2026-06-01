@@ -4,9 +4,10 @@ import { supabase } from '../lib/supabase';
 interface ProfileProps {
   onBack: () => void;
   onSignOut: () => void;
+  onChangePassword: () => void;   // ← New prop
 }
 
-export default function Profile({ onBack, onSignOut }: ProfileProps) {
+export default function Profile({ onBack, onSignOut, onChangePassword }: ProfileProps) {
   const [userEmail, setUserEmail] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -19,11 +20,6 @@ export default function Profile({ onBack, onSignOut }: ProfileProps) {
     };
     getUser();
   }, []);
-
-  const handleChangePassword = () => {
-    // For now we'll just alert. Later we can route to a proper change password screen.
-    alert('Change password feature coming soon. For now, you can reset your password via the login screen.');
-  };
 
   const handleSignOut = async () => {
     setLoading(true);
@@ -82,7 +78,7 @@ export default function Profile({ onBack, onSignOut }: ProfileProps) {
       {/* Actions */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <button
-          onClick={handleChangePassword}
+          onClick={onChangePassword}           // ← Now calls the real function
           style={{
             width: '100%',
             padding: '16px',

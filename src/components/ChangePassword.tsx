@@ -3,167 +3,174 @@ import { supabase } from '../lib/supabase';
 
 interface ChangePasswordProps {
   onPasswordChanged: () => void;
-  userEmail: string;
 }
 
-export default function ChangePassword({ onPasswordChanged, userEmail }: ChangePasswordProps) {
+export default function ChangePassword({ onPasswordChanged }: ChangePasswordProps) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  const handleChangePassword = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
 
     if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters long.');
-      setLoading(false);
+      setError('Password must be at least 8 characters long');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError('Passwords do not match.');
-      setLoading(false);
+      setError('Passwords do not match');
       return;
     }
 
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
-      data: { has_changed_password: true }
-    });
+    setLoading(true);
 
-    if (error) {
-      setError(error.message);
-    } else {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+        data: { has_changed_password: true }
+      });
+
+      if (error) throw error;
+
       setSuccess(true);
+
+      // Wait a moment then redirect to dashboard
       setTimeout(() => {
         onPasswordChanged();
-      }, 1200);
+      }, 1500);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update password. Please try again.');
+      setLoading(false);
     }
-
-    setLoading(false);
   };
+
+  if (success) {
+    return (
+      <div style={{ 
+        maxWidth: '420px', 
+        margin: '80px auto', 
+        padding: '40px', 
+        textAlign: 'center',
+        background: 'white',
+        borderRadius: '16px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+      }}>
+        <div style={{ fontSize: '64px', marginBottom: '20px' }}>✅</div>
+        <h2 style={{ marginBottom: '12px' }}>Password Updated</h2>
+        <p style={{ color: '#64748b', fontSize: '16px' }}>
+          Your password has been changed successfully.<br />
+          Taking you to the dashboard...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ 
-      minHeight: '100vh', 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: '#f8fafc',
-      padding: '20px'
+      maxWidth: '420px', 
+      margin: '60px auto', 
+      padding: '0 20px' 
     }}>
       <div style={{ 
-        width: '100%', 
-        maxWidth: '420px',
-        backgroundColor: '#fff',
+        background: 'white', 
+        padding: '40px', 
         borderRadius: '16px',
-        padding: '48px 40px',
         boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
       }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#0A2540', margin: 0 }}>
-            Welcome to Aussie Grid
-          </h1>
-          <p style={{ color: '#666', marginTop: '12px', fontSize: '15px' }}>
-            Please set a new password to continue
-          </p>
-        </div>
+        <h1 style={{ marginBottom: '8px', textAlign: 'center' }}>Create New Password</h1>
+        <p style={{ 
+          color: '#64748b', 
+          textAlign: 'center', 
+          marginBottom: '32px',
+          fontSize: '15px'
+        }}>
+          Please set a new password for your pilot account.
+        </p>
 
-        {success ? (
-          <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
-            <h2 style={{ color: '#22C55E', margin: 0 }}>Password Updated</h2>
-            <p style={{ color: '#666', marginTop: '12px' }}>Taking you to the dashboard...</p>
-          </div>
-        ) : (
-          <form onSubmit={handleChangePassword}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '14px', color: '#555', marginBottom: '8px', fontWeight: 500 }}>
-                New Password
-              </label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new password"
-                required
-                style={{
-                  width: '100%',
-                  padding: '14px 16px',
-                  fontSize: '16px',
-                  border: '1px solid #ddd',
-                  borderRadius: '10px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '28px' }}>
-              <label style={{ display: 'block', fontSize: '14px', color: '#555', marginBottom: '8px', fontWeight: 500 }}>
-                Confirm New Password
-              </label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm new password"
-                required
-                style={{
-                  width: '100%',
-                  padding: '14px 16px',
-                  fontSize: '16px',
-                  border: '1px solid #ddd',
-                  borderRadius: '10px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-
-            {error && (
-              <div style={{ 
-                backgroundColor: '#fef2f2', 
-                color: '#dc2626', 
-                padding: '12px 16px', 
-                borderRadius: '8px', 
-                marginBottom: '24px',
-                fontSize: '14px'
-              }}>
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+              New Password
+            </label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Enter new password"
+              required
               style={{
                 width: '100%',
-                padding: '16px',
-                backgroundColor: loading ? '#86efac' : '#22C55E',
-                color: 'white',
-                border: 'none',
+                padding: '14px 16px',
+                border: '1px solid #e2e8f0',
                 borderRadius: '10px',
-                fontSize: '16px',
-                fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer'
+                fontSize: '16px'
               }}
-            >
-              {loading ? 'Updating Password...' : 'Set New Password'}
-            </button>
-          </form>
-        )}
+            />
+          </div>
+
+          <div style={{ marginBottom: '28px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+              Confirm New Password
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm new password"
+              required
+              style={{
+                width: '100%',
+                padding: '14px 16px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '10px',
+                fontSize: '16px'
+              }}
+            />
+          </div>
+
+          {error && (
+            <div style={{ 
+              background: '#fef2f2', 
+              color: '#b91c1c', 
+              padding: '12px 16px', 
+              borderRadius: '8px', 
+              marginBottom: '20px',
+              fontSize: '14px'
+            }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: '100%',
+              padding: '16px',
+              background: loading ? '#94a3b8' : '#22c55e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '10px',
+              fontSize: '17px',
+              fontWeight: 600,
+              cursor: loading ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {loading ? 'Updating Password...' : 'Set New Password'}
+          </button>
+        </form>
 
         <p style={{ 
-          textAlign: 'center', 
-          color: '#888', 
           fontSize: '13px', 
-          marginTop: '32px',
-          marginBottom: 0
+          color: '#94a3b8', 
+          textAlign: 'center', 
+          marginTop: '24px' 
         }}>
-          {userEmail}
+          Your password must be at least 8 characters long.
         </p>
       </div>
     </div>

@@ -37,20 +37,21 @@ export default function App() {
     setView('login');
   };
 
+  // Show login if no session
   if (!session && view !== 'login') {
     return <Login />;
   }
 
   return (
-    <div>
+    <>
       {view === 'login' && <Login />}
-      
+
       {view === 'change-password' && (
         <ChangePassword 
           onPasswordChanged={() => setView('dashboard')} 
         />
       )}
-      
+
       {view === 'dashboard' && (
         <Dashboard 
           onConnectInverter={() => setView('connect-sungrow')}
@@ -58,7 +59,7 @@ export default function App() {
           onSignOut={handleSignOut}
         />
       )}
-      
+
       {view === 'connect-sungrow' && (
         <ConnectSungrow 
           onConnectSuccess={() => setView('dashboard')}
@@ -70,8 +71,9 @@ export default function App() {
         <Profile 
           onBack={() => setView('dashboard')}
           onSignOut={handleSignOut}
+          onChangePassword={() => setView('change-password')}
         />
       )}
-    </div>
+    </>
   );
 }
