@@ -4,93 +4,74 @@ import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import ConnectSungrow from './components/ConnectSungrow';
 import ChangePassword from './components/ChangePassword';
+import Profile from './components/Profile';
 
-type View = 'login' | 'change-password' | 'dashboard' | 'connect-sungrow';
+type View = 'login' | 'change-password' | 'dashboard' | 'connect-sungrow' | 'profile';
 
 export default function App() {
+  const [view, setView] = useState<View>('login');
   const [session, setSession] = useState<any>(null);
-  const [currentView, setCurrentView] = useState<View>('login');
-  const [hasInverterConnected, setHasInverterConnected] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) {
-        checkIfNeedsPasswordChange(session);
+        setView('dashboard');
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
-        checkIfNeedsPasswordChange(session);
+        setView('dashboard');
       } else {
-        setCurrentView('login');
+        setView('login');
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const checkIfNeedsPasswordChange = (session: any) => {
-    const hasChanged = session.user?.user_metadata?.has_changed_password === true;
-    
-    if (!hasChanged) {
-      setCurrentView('change-password');
-    } else {
-      setCurrentView('dashboard');
-    }
-
-    // Load inverter connection status
-    const saved = localStorage.getItem('hasInverterConnected');
-    setHasInverterConnected(saved === 'true');
-  };
-
-  const handlePasswordChanged = () => {
-    setCurrentView('dashboard');
-  };
-
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    setSession(null);
-    setCurrentView('login');
-    setHasInverterConnected(false);
+    setView('login');
   };
 
-  const handleConnectSuccess = () => {
-    setHasInverterConnected(true);
-    localStorage.setItem('hasInverterConnected', 'true');
-    setCurrentView('dashboard');
-  };
-
-  if (!session) {
+  if (!session && view !== 'login') {
     return <Login />;
   }
 
-  if (currentView === 'change-password') {
-    return (
-      <ChangePassword 
-        onPasswordChanged={handlePasswordChanged} 
-        userEmail={session.user?.email || ''} 
-      />
-    );
-  }
-
-  if (currentView === 'connect-sungrow') {
-    return (
-      <ConnectSungrow 
-        onConnectSuccess={handleConnectSuccess}
-        onBack={() => setCurrentView('dashboard')}
-      />
-    );
-  }
-
   return (
-    <Dashboard 
-      userEmail={session.user?.email || ''} 
-      onSignOut={handleSignOut}
-      onConnectInverter={() => setCurrentView('connect-sungrow')}
-      hasInverterConnected={hasInverterConnected}
-    />
+    <div>
+      {view === 'login' && <Login />}
+      
+      {view === 'change-password' && (
+        <ChangePassword 
+          onPasswordChanged={() => setView('dashboard')} 
+        />
+      )}
+      
+      {view === 'dashboard' && (
+        <Dashboard 
+          onConnectInverter={() => setView('connect-sungrow')}
+          onOpenProfile={() => setView('profile')}
+          onSignOut={handleSignOut}
+        />
+      )}
+      
+      {view === 'connect-sungrow' && (
+        <ConnectSungrow 
+          onConnectSuccess={() => setView('dashboard')}
+          onBack={() => setView('dashboard')}
+        />
+      )}
+
+      {view === 'profile' && (
+        <Profile 
+          onBack={() => setView('dashboard')}
+          onSignOut={handleSignOut}
+        />
+      )}
+    </div>
   );
 }
