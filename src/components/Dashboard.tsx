@@ -211,7 +211,12 @@ export default function Dashboard({
 
       {/* Operating Modes */}
       <div style={{ marginBottom: '32px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: '16px' 
+        }}>
           <h2 style={{ margin: 0, fontSize: '20px' }}>Operating Modes</h2>
           <span style={{ fontSize: '13px', color: '#64748b' }}>Tap to switch</span>
         </div>
@@ -230,12 +235,18 @@ export default function Dashboard({
                 textAlign: 'left',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
-                boxShadow: activeMode === mode.id ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.08)',
+                boxShadow: activeMode === mode.id 
+                  ? '0 4px 12px rgba(0,0,0,0.15)' 
+                  : '0 1px 3px rgba(0,0,0,0.08)',
               }}
             >
               <div style={{ fontSize: '28px', marginBottom: '12px' }}>{mode.icon}</div>
               <div style={{ fontSize: '20px', fontWeight: 600 }}>{mode.label}</div>
-              <div style={{ fontSize: '14px', opacity: activeMode === mode.id ? 0.9 : 0.6, marginTop: '4px' }}>
+              <div style={{ 
+                fontSize: '14px', 
+                opacity: activeMode === mode.id ? 0.9 : 0.6, 
+                marginTop: '4px' 
+              }}>
                 {mode.id === 'storm' && 'Protect your battery during outages'}
                 {mode.id === 'save' && 'Maximise self-consumption'}
                 {mode.id === 'sell' && 'Export to the grid when prices are high'}
@@ -253,21 +264,34 @@ export default function Dashboard({
         padding: '12px 16px', 
         fontSize: '14px',
         color: '#64748b',
-        marginBottom: '24px'
+        marginBottom: '32px'
       }}>
         Data source: <strong>{dataSource}</strong> &nbsp;•&nbsp; 
         This is currently simulated data for testing purposes.
       </div>
 
-      {/* Connect Real Inverter Button */}
-      <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+      {/* Connect Your Real System - Clean Version */}
+      <div style={{ 
+        background: 'white',
+        border: '1px solid #e2e8f0',
+        borderRadius: '12px',
+        padding: '24px',
+        marginBottom: '24px'
+      }}>
+        <h3 style={{ marginTop: 0, marginBottom: '8px', fontSize: '18px' }}>
+          Ready to connect your real system?
+        </h3>
+        <p style={{ color: '#64748b', marginBottom: '20px', fontSize: '15px' }}>
+          When Jack or Matty is ready, connect their Sungrow inverter to start collecting real data.
+        </p>
+
         <button 
           onClick={onConnectInverter}
           style={{
-            background: '#1e2937',
+            background: '#166534',
             color: 'white',
             border: 'none',
-            padding: '14px 28px',
+            padding: '14px 32px',
             borderRadius: '10px',
             fontSize: '16px',
             fontWeight: 600,
@@ -276,26 +300,23 @@ export default function Dashboard({
         >
           Connect Real Inverter (Sungrow)
         </button>
-        <p style={{ fontSize: '13px', color: '#64748b', marginTop: '8px' }}>
-          Ready to connect Jack or Matty’s system? Click above.
-        </p>
-      </div>
 
-      {/* Manual Entry Toggle */}
-      <div style={{ textAlign: 'center' }}>
-        <button 
-          onClick={() => setShowManualEntry(!showManualEntry)}
-          style={{
-            background: 'white',
-            border: '1px solid #e2e8f0',
-            padding: '10px 20px',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '14px'
-          }}
-        >
-          {showManualEntry ? 'Hide manual entry' : 'Enter manual readings (for testing)'}
-        </button>
+        {/* Manual Entry - Secondary Action */}
+        <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
+          <button 
+            onClick={() => setShowManualEntry(!showManualEntry)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#64748b',
+              fontSize: '14px',
+              cursor: 'pointer',
+              padding: '4px 0'
+            }}
+          >
+            {showManualEntry ? 'Hide manual data entry' : 'Or enter manual readings for testing →'}
+          </button>
+        </div>
       </div>
     </div>
   );

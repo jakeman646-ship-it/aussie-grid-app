@@ -16,7 +16,9 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) setView('dashboard');
+      if (session) {
+        setView('dashboard');
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -45,7 +47,9 @@ export default function App() {
       {view === 'login' && <Login />}
 
       {view === 'change-password' && (
-        <ChangePassword onPasswordChanged={() => setView('dashboard')} />
+        <ChangePassword 
+          onPasswordChanged={() => setView('dashboard')} 
+        />
       )}
 
       {view === 'dashboard' && (
