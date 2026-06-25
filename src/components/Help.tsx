@@ -1,162 +1,158 @@
-interface HelpProps {
-    onBack: () => void;
-  }
-  
-  export default function Help({ onBack }: HelpProps) {
-    return (
-      <div style={{ maxWidth: '720px', margin: '40px auto', padding: '0 20px' }}>
-        
-        <button 
-          onClick={onBack}
-          style={{ 
-            background: 'none', 
-            border: 'none', 
-            color: '#64748b', 
-            cursor: 'pointer',
-            marginBottom: '20px',
-            fontSize: '15px'
-          }}
-        >
-          ← Back to Dashboard
-        </button>
-  
-        {/* Main Heading */}
-        <div style={{ marginBottom: '32px' }}>
-          <h1 style={{ 
-            margin: 0, 
-            fontSize: '32px', 
-            fontWeight: 700,
-            color: '#0f172a'
-          }}>
-            Help & Instructions
-          </h1>
-          <p style={{ 
-            color: '#64748b', 
-            marginTop: '8px',
-            fontSize: '16px'
-          }}>
-            Everything you need to know about the Aussie Grid pilot.
+﻿import { useState } from 'react';
+
+export interface HelpProps {
+  onBack?: () => void;
+}
+
+interface FAQItem {
+  question: string;
+  answer: string;
+}
+
+const PILOT_SUPPORT_EMAIL = "help@aussiegrid.au";
+
+const faqData: FAQItem[] = [
+  {
+    question: "What is the Aussie Grid Mackay Pilot?",
+    answer: "We're working with a small group of local Mackay households to test whether a smart agent can help homes use solar and batteries more efficiently — both for the household and for the local grid. The goal is to reduce bills, support grid stability, and keep more solar energy in the community.",
+  },
+  {
+    question: "Why is everything read-only right now?",
+    answer: "We're in the pre-pilot learning phase. During this stage we only read data from your solar and battery system so the agent can learn what works best for Mackay homes. We cannot control your inverter or change any settings yet. This keeps everything simple and safe while we gather real-world data.",
+  },
+  {
+    question: "How long will the pre-pilot phase last?",
+    answer: "It depends on how quickly we get good data from participating homes. Our target is to move into the active pilot phase (where the agent can start setting operating modes) within the next 4–8 weeks, once we've seen consistent patterns across the group.",
+  },
+  {
+    question: "What data do you collect from my system?",
+    answer: "We collect solar production (kW), battery state of charge (%), home consumption (kW), grid import/export (kW), and daily operating mode suggestions. We do not collect personal identifying information beyond your household ID and the email you use to connect your Sungrow account.",
+  },
+  {
+    question: "Will you ever control my inverter without asking?",
+    answer: "No. During the entire pilot you stay in full control. Even in the active phase, the agent will only suggest or set operating modes within clear safety limits that you approve during onboarding. You can always override or leave the pilot at any time.",
+  },
+  {
+    question: "How do I connect my Sungrow system?",
+    answer: "Go to the Connect Inverter page from the dashboard or top menu. You'll need your Sungrow Site ID (Plant ID) and the email linked to your iSolarCloud account. We request read-only API access on your behalf. Once approved, your dashboard will show 'Live data' instead of sample data.",
+  },
+  {
+    question: "I submitted my Site ID but it still says not connected — what now?",
+    answer: "Our team manually reviews and activates each connection (usually within 1–2 business days). You'll receive a confirmation email when it's live. If it's been longer than 48 hours, reply to the confirmation email or use the contact details below.",
+  },
+  {
+    question: "Where can I see my daily savings or agent suggestions?",
+    answer: "On the main Dashboard you'll see your current operating mode, the agent's reasoning, tomorrow's solar outlook, and estimated savings. Daily and weekly savings trends will be added in a future update once we have more real data.",
+  },
+  {
+    question: "Can I leave the pilot at any time?",
+    answer: "Yes, absolutely. Just let us know via email and we'll remove your household from data collection and deactivate the connection. There are no lock-in periods or penalties.",
+  },
+  {
+    question: "Who do I contact if I have a technical problem or question?",
+    answer: `Email ${PILOT_SUPPORT_EMAIL} or reply to any email we've sent you. For urgent inverter or system issues, please contact Sungrow support directly first — we're here to help with the pilot experience specifically.`,
+  },
+];
+
+export function Help({ onBack }: HelpProps) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+
+  const toggleFAQ = (index: number) => {
+    setOpenIndex(openIndex === index ? null : index);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
+      <div className="mx-auto max-w-3xl">
+        {/* Header */}
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-900"
+              >
+                ← Back to Dashboard
+              </button>
+            )}
+            <div>
+              <h1 className="text-2xl font-semibold text-emerald-400">Help &amp; FAQ</h1>
+              <p className="text-sm text-slate-400">Mackay Pilot — Pre-pilot learning phase</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Intro */}
+        <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5">
+          <p className="text-sm leading-relaxed text-slate-300">
+            This page answers the most common questions from households in the Aussie Grid Mackay Pilot. 
+            We're still in the early data collection stage, so everything is read-only while we learn together.
           </p>
         </div>
-  
-        {/* Section 1: Read-Only Mode */}
-        <div style={{ 
-          background: 'white', 
-          border: '1px solid #e2e8f0', 
-          borderRadius: '12px', 
-          padding: '28px', 
-          marginBottom: '24px' 
-        }}>
-          <h3 style={{ 
-            marginTop: 0, 
-            marginBottom: '16px', 
-            color: '#166534',
-            fontSize: '20px'
-          }}>
-            What is Read-Only Mode?
-          </h3>
-          <p style={{ color: '#475569', lineHeight: 1.7, marginBottom: '12px' }}>
-            During the pilot, we can only <strong>read data</strong> from your solar and battery system. 
-            We cannot control your inverter, change settings, or discharge your battery without your permission.
-          </p>
-          <p style={{ color: '#475569', lineHeight: 1.7, margin: 0 }}>
-            This keeps things simple and safe while we collect performance data to improve the app.
-          </p>
-        </div>
-  
-        {/* Section 2: How to Find Your Keys */}
-        <div style={{ 
-          background: 'white', 
-          border: '1px solid #e2e8f0', 
-          borderRadius: '12px', 
-          padding: '28px', 
-          marginBottom: '24px' 
-        }}>
-          <h3 style={{ 
-            marginTop: 0, 
-            marginBottom: '20px', 
-            color: '#166534',
-            fontSize: '20px'
-          }}>
-            How to Find Your Sungrow Keys
-          </h3>
+
+        {/* FAQ Section */}
+        <div className="mb-8">
+          <h2 className="mb-4 text-lg font-semibold text-emerald-400">Frequently Asked Questions</h2>
           
-          <ol style={{ 
-            paddingLeft: '22px', 
-            lineHeight: '1.85', 
-            color: '#334155',
-            marginBottom: '16px'
-          }}>
-            <li>Log into the <strong>Sungrow iSolarCloud</strong> app or website</li>
-            <li>Tap on your profile icon (usually top right)</li>
-            <li>Go to <strong>Account Settings</strong> or <strong>Developer / API</strong> section</li>
-            <li>Find and copy your <strong>App Key</strong> and <strong>Access Key</strong></li>
-            <li>Paste them into the "Connect Sungrow" screen in this app</li>
-          </ol>
-  
-          <p style={{ 
-            fontSize: '14px', 
-            color: '#64748b', 
-            margin: 0 
-          }}>
-            Can’t find them? Just message <strong>Ben</strong> and he’ll walk you through it.
+          <div className="space-y-3">
+            {faqData.map((item, index) => (
+              <div 
+                key={index} 
+                className="rounded-lg border border-slate-700 bg-slate-900/60 overflow-hidden"
+              >
+                <button
+                  onClick={() => toggleFAQ(index)}
+                  className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-slate-800/60 transition-colors"
+                  aria-expanded={openIndex === index}
+                >
+                  <span className="pr-4 text-sm font-medium text-slate-200">{item.question}</span>
+                  <span className="text-emerald-400 text-xl leading-none">
+                    {openIndex === index ? '−' : '+'}
+                  </span>
+                </button>
+                
+                {openIndex === index && (
+                  <div className="px-5 pb-5 pt-1 text-sm leading-relaxed text-slate-300 border-t border-slate-700">
+                    {item.answer}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Still have questions? */}
+        <div className="rounded-lg border border-emerald-600/40 bg-emerald-950/10 p-5 mb-8">
+          <h3 className="text-base font-semibold text-emerald-400">Still have questions?</h3>
+          <p className="mt-2 text-sm text-slate-300">
+            We're a small local team and happy to help. The fastest way to reach us during the pilot is:
+          </p>
+          <div className="mt-3 space-y-1 text-sm">
+            <p><span className="font-medium text-emerald-300">Email:</span> {PILOT_SUPPORT_EMAIL}</p>
+            <p><span className="font-medium text-emerald-300">Reply</span> to any email we've already sent you</p>
+          </div>
+          <p className="mt-3 text-xs text-emerald-300/80">
+            We usually respond within one business day. For urgent system or inverter faults, please contact Sungrow support directly.
           </p>
         </div>
-  
-        {/* Section 3: What Data Are We Collecting? */}
-        <div style={{ 
-          background: 'white', 
-          border: '1px solid #e2e8f0', 
-          borderRadius: '12px', 
-          padding: '28px', 
-          marginBottom: '24px' 
-        }}>
-          <h3 style={{ 
-            marginTop: 0, 
-            marginBottom: '16px', 
-            color: '#166534',
-            fontSize: '20px'
-          }}>
-            What Data Are We Collecting?
-          </h3>
-          <ul style={{ 
-            paddingLeft: '22px', 
-            lineHeight: '1.85', 
-            color: '#334155',
-            marginBottom: '16px'
-          }}>
-            <li>Battery level and charging/discharging status</li>
-            <li>Solar production (kW)</li>
-            <li>Home energy consumption</li>
-            <li>Energy exported to or imported from the grid</li>
+
+        {/* Quick links / next steps */}
+        <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-5">
+          <h3 className="text-base font-semibold text-emerald-400 mb-3">Quick actions</h3>
+          <ul className="space-y-2 text-sm text-slate-300">
+            <li>• <span className="font-medium">Connect your Sungrow system</span> — go to the Connect Inverter page from the top menu</li>
+            <li>• <span className="font-medium">Check your daily suggestion</span> — return to the Dashboard to see today's mode and reasoning</li>
+            <li>• <span className="font-medium">Switch between test households</span> — use the DEV dropdown in the top-right (visible in development)</li>
           </ul>
-          <p style={{ color: '#475569', margin: 0 }}>
-            This data helps us understand how homes in Mackay use and share energy.
-          </p>
         </div>
-  
-        {/* Section 4: Need Help? */}
-        <div style={{ 
-          background: '#f8fafc', 
-          border: '1px solid #e2e8f0', 
-          borderRadius: '12px', 
-          padding: '28px' 
-        }}>
-          <h3 style={{ 
-            marginTop: 0, 
-            marginBottom: '12px', 
-            color: '#166534',
-            fontSize: '20px'
-          }}>
-            Need Help?
-          </h3>
-          <p style={{ color: '#475569', lineHeight: 1.7, marginBottom: '8px' }}>
-            If you have any questions or run into issues, just message <strong>Ben</strong> directly.
-          </p>
-          <p style={{ color: '#475569', margin: 0 }}>
-            We’re here to support you through the pilot.
-          </p>
+
+        {/* Footer reassurance */}
+        <div className="mt-8 text-center text-xs text-slate-500">
+          Aussie Grid Mackay Pilot • Pre-pilot learning phase • Read-only access only • Your system stays under your full control
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+export default Help;
