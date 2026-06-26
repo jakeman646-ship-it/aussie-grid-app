@@ -1,285 +1,239 @@
-import { useState } from "react";
-import { supabase } from "@/lib/supabase"; // Update path if your client is elsewhere (e.g. ../lib/supabaseClient)
+import { useState, type FormEvent } from "react";
+import { usePilotHousehold } from "@/hooks";
+import { createConnectionRequest } from "@/lib/api/createConnectionRequest";
 
-export interface ConnectInverterProps {
+const DEFAULT_USER_ID = "sungrow-test-001";
+
+interface ConnectInverterProps {
+  userId?: string;
+  onComplete?: () => void;
   onBack?: () => void;
-  onConnectionComplete?: () => void;
-  currentHouseholdId?: string;
 }
 
-interface FormData {
-  accountEmail: string;
-  siteId: string;
-  notes: string;
-}
-
-export function ConnectInverter({ 
-  onBack, 
-  onConnectionComplete, 
-  currentHouseholdId 
+export function ConnectInverter({
+  userId = DEFAULT_USER_ID,
+  onComplete,
+  onBack,
 }: ConnectInverterProps) {
-  const [formData, setFormData] = useState<FormData>({
-    accountEmail: "",
-    siteId: "",
-    notes: "",
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const householdQuery = usePilotHousehold(userId);
+  const household = householdQuery.data;
+  const householdId = household?.household_id ?? userId;
 
-  const handleInputChange = (field: keyof FormData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (error) setError(null);
-  };
+  const [siteId, setSiteId] = useState("");
+  const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
-  const validateForm = (): boolean => {
-    if (!formData.siteId.trim()) {
-      setError("Please enter your Sungrow Site ID (Plant ID).");
-      return false;
-    }
-    if (!formData.accountEmail.trim()) {
-      setError("Please enter the email associated with your Sungrow account.");
-      return false;
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.accountEmail)) {
-      setError("Please enter a valid email address.");
-      return false;
-    }
-    return true;
-  };
+  const alreadyConnected = household?.inverter_make === "Sungrow";
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-
-    setIsSubmitting(true);
-    setError(null);
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitError(null);
+    setSubmitting(true);
 
     try {
-      const { error: insertError } = await supabase
-        .from("pilot_connection_requests")
-        .insert({
-          household_id: currentHouseholdId || "unknown",
-          site_id: formData.siteId.trim(),
-          account_email: formData.accountEmail.trim().toLowerCase(),
-          notes: formData.notes.trim() || null,
-          status: "pending_review",
-          requested_at: new Date().toISOString(),
-        });
-
-      if (insertError) throw insertError;
-
-      setIsSubmitted(true);
-
-      // Return to dashboard after short delay so user sees success state
-      setTimeout(() => {
-        onConnectionComplete?.();
-      }, 2200);
-    } catch (err: any) {
-      console.error("Connection request error:", err);
-      setError(
-        err.message || 
-        "Something went wrong submitting your request. Please try again or email help@aussiegrid.au"
+      await createConnectionRequest({
+        householdId,
+        siteId: siteId.trim(),
+        email: email.trim(),
+        notes: notes.trim() || undefined,
+      });
+      setSuccess(true);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Something went wrong. Please try again."
       );
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(false);
     }
-  };
+  }
 
-  const resetForm = () => {
-    setFormData({ accountEmail: "", siteId: "", notes: "" });
-    setIsSubmitted(false);
-    setError(null);
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <div className="mx-auto max-w-3xl">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {onBack && (
-              <button
-                onClick={onBack}
-                className="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-900"
-              >
-                ← Back to Dashboard
-              </button>
-            )}
-            <div>
-              <h1 className="text-2xl font-semibold text-emerald-400">Connect your Sungrow system</h1>
-              <p className="text-sm text-slate-400">Mackay Pilot — Pre-pilot phase</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Pre-pilot reassurance banner */}
-        <div className="mb-6 rounded-lg border border-emerald-600/40 bg-emerald-950/20 px-5 py-4">
-          <p className="text-sm font-medium text-emerald-300">Read-only during pre-pilot learning phase</p>
-          <p className="mt-1 text-sm leading-relaxed text-emerald-100/90">
-            We will only <span className="font-semibold">read</span> data from your solar and battery system. 
-            We cannot control your inverter or change any settings. This keeps everything simple and safe while we learn what works best for Mackay households.
+  // Success screen
+  if (success) {
+    return (
+      <div className="space-y-6 rounded-xl border border-emerald-700/40 bg-slate-950 p-6 text-slate-100">
+        <div className="rounded-lg border border-emerald-600/40 bg-emerald-950/30 p-6 text-center">
+          <p className="text-3xl" aria-hidden>✓</p>
+          <h1 className="mt-3 text-xl font-semibold text-emerald-300">
+            Request submitted
+          </h1>
+          <p className="mt-3 text-sm leading-relaxed text-slate-300">
+            Thank you. We’ve received your connection request and will review it shortly.
           </p>
         </div>
 
-        {!isSubmitted ? (
-          <>
-            {/* Why connect */}
-            <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5">
-              <h2 className="text-lg font-medium text-emerald-400">Why connect your system?</h2>
-              <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                Connecting lets you see your live solar production, battery charge level, and grid flow right here in the pilot dashboard. 
-                Your smart agent will also start learning from your home’s real data so it can give you better daily suggestions.
-              </p>
-              <p className="mt-3 text-sm text-slate-400">
-                This is still the <span className="font-medium text-emerald-300">pre-pilot learning phase</span> — everything stays read-only until we’ve gathered enough data from participating homes.
-              </p>
-            </div>
+        <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-5 text-sm">
+          <p className="font-medium text-emerald-300 mb-2">What happens next:</p>
+          <ul className="space-y-1.5 text-slate-300">
+            <li>• We will verify your Site ID and request read-only access</li>
+            <li>• You’ll receive an email once your system is connected (usually within 1–2 business days)</li>
+            <li>• Your dashboard will then show live solar, battery and grid data</li>
+          </ul>
+        </div>
 
-            {/* How it works */}
-            <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5">
-              <h3 className="text-base font-semibold text-emerald-400">How to connect (takes about 2 minutes)</h3>
-              <ol className="mt-3 space-y-3 text-sm text-slate-300">
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">1</span>
-                  <span>Log into your <span className="font-medium">Sungrow iSolarCloud</span> account (app or web at isolarcloud.com)</span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">2</span>
-                  <span>Find your plant / site and copy the <span className="font-medium">Site ID</span> or <span className="font-medium">Plant ID</span></span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">3</span>
-                  <span>Enter your Site ID and the email linked to your Sungrow account below</span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">4</span>
-                  <span>We’ll securely request read-only access on your behalf. You’ll see “Live data” status once connected.</span>
-                </li>
-              </ol>
-              <p className="mt-4 text-xs text-slate-500">
-                Don’t worry — we only ever request read-only access during the pilot. You stay in full control of your system.
-              </p>
-            </div>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={onComplete ?? onBack}
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          >
+            Return to Dashboard
+          </button>
+          {onBack && onComplete && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-md border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+            >
+              Stay on this page
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
-            {/* Connection form */}
-            <form onSubmit={handleSubmit} className="rounded-xl border border-slate-700 bg-slate-900 p-6">
-              <h3 className="text-lg font-medium text-emerald-400">Enter your Sungrow details</h3>
+  // Loading state
+  if (householdQuery.loading && !household) {
+    return (
+      <div className="rounded-lg border border-slate-700 bg-slate-900 p-8 text-center text-slate-400">
+        Loading your household…
+      </div>
+    );
+  }
 
-              {error && (
-                <div className="mt-4 rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-200">
-                  {error}
-                </div>
-              )}
+  // Main form (works even if no household record exists)
+  return (
+    <div className="space-y-6 rounded-xl border border-slate-700 bg-slate-950 p-6 text-slate-100">
+      <header>
+        <h1 className="text-2xl font-semibold text-emerald-400">
+          Connect Your Sungrow Inverter
+        </h1>
+        <p className="mt-2 text-sm text-slate-400">
+          Submit a request to link your Sungrow system to your pilot household. 
+          We’ll review it and connect your system manually.
+        </p>
+        {household && (
+          <p className="mt-1 text-sm text-slate-300">
+            Household: {household.household_id}
+            {household.is_test ? " · test household" : ""}
+          </p>
+        )}
+      </header>
 
-              <div className="mt-5 space-y-5">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                    Sungrow account email <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    value={formData.accountEmail}
-                    onChange={(e) => handleInputChange("accountEmail", e.target.value)}
-                    placeholder="you@email.com"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-                    required
-                  />
-                  <p className="mt-1 text-xs text-slate-500">The email you use to log into iSolarCloud</p>
-                </div>
+      {/* Graceful message when no household record exists yet */}
+      {!household && !householdQuery.loading && (
+        <div className="rounded-lg border border-amber-600/40 bg-amber-950/30 p-5">
+          <p className="font-medium text-amber-200">No household record found yet</p>
+          <p className="mt-2 text-sm text-amber-100/90">
+            We don’t have a household record for this ID yet. You can still submit a connection request 
+            and we’ll create one during review.
+          </p>
+        </div>
+      )}
 
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                    Site ID / Plant ID <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.siteId}
-                    onChange={(e) => handleInputChange("siteId", e.target.value)}
-                    placeholder="e.g. 12345678 or PLANT-ABC123"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-                    required
-                  />
-                  <p className="mt-1 text-xs text-slate-500">Found in your iSolarCloud plant list or dashboard</p>
-                </div>
+      {alreadyConnected && (
+        <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-200">
+          This household already has a Sungrow inverter registered. You can submit a new request to update the connection.
+        </div>
+      )}
 
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                    Notes (optional)
-                  </label>
-                  <textarea
-                    value={formData.notes}
-                    onChange={(e) => handleInputChange("notes", e.target.value)}
-                    placeholder="e.g. I have a 10kW system with 13.5kWh battery, or any questions for the team"
-                    rows={3}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-              </div>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label htmlFor="site-id" className="block text-sm font-medium text-slate-300 mb-1">
+            Sungrow Site ID / Plant ID <span className="text-red-400">*</span>
+          </label>
+          <input
+            id="site-id"
+            type="text"
+            required
+            value={siteId}
+            onChange={(e) => setSiteId(e.target.value)}
+            disabled={submitting}
+            className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
+            placeholder="e.g. 1234567890"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            You can find this in the Sungrow iSolarCloud app or portal.
+          </p>
+        </div>
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="mt-6 w-full rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-700"
-              >
-                {isSubmitting ? "Submitting request..." : "Submit connection request"}
-              </button>
+        <div>
+          <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1">
+            Contact Email <span className="text-red-400">*</span>
+          </label>
+          <input
+            id="email"
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={submitting}
+            className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
+            placeholder="your@email.com"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            We’ll use this to send you updates about your connection request.
+          </p>
+        </div>
 
-              <p className="mt-3 text-center text-xs text-slate-500">
-                We’ll review and activate read-only access, usually within 1–2 business days.
-              </p>
-            </form>
-          </>
-        ) : (
-          /* Success state */
-          <div className="rounded-xl border border-emerald-600/40 bg-emerald-950/10 p-8 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20">
-              <span className="text-3xl">✓</span>
-            </div>
-            <h2 className="text-2xl font-semibold text-emerald-400">Request received — thank you!</h2>
-            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-300">
-              We’ve recorded your Sungrow Site ID and will now request read-only access. 
-              You’ll receive an email confirmation once we’ve verified everything and your dashboard shows “Live data”.
-            </p>
+        <div>
+          <label htmlFor="notes" className="block text-sm font-medium text-slate-300 mb-1">
+            Additional Notes (optional)
+          </label>
+          <textarea
+            id="notes"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            disabled={submitting}
+            className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
+            placeholder="Any extra information that might help us..."
+          />
+        </div>
 
-            <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900/60 p-4 text-left text-sm">
-              <p className="font-medium text-emerald-300">What happens next:</p>
-              <ul className="mt-2 space-y-1.5 text-slate-300">
-                <li>• Our team verifies your Site ID and requests read-only API access</li>
-                <li>• You’ll see a confirmation email (usually within 24–48 hours)</li>
-                <li>• Once connected, the dashboard will show live solar, battery, and grid data</li>
-                <li>• Your agent starts learning from your real home data (still read-only)</li>
-              </ul>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              {onBack && (
-                <button
-                  onClick={onBack}
-                  className="rounded-xl border border-slate-600 px-6 py-2.5 text-sm font-medium hover:bg-slate-900"
-                >
-                  Return to Dashboard
-                </button>
-              )}
-              <button
-                onClick={resetForm}
-                className="rounded-xl border border-emerald-600/60 px-6 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-950/40"
-              >
-                Submit another connection
-              </button>
-            </div>
-
-            <p className="mt-6 text-xs text-slate-500">
-              Questions? Email help@aussiegrid.au or check the Help page.
-            </p>
+        {submitError && (
+          <div role="alert" className="rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+            {submitError}
           </div>
         )}
 
-        {/* Footer reassurance */}
-        <div className="mt-8 text-center text-xs text-slate-500">
-          Aussie Grid Mackay Pilot — Pre-pilot learning phase • Read-only access only • Your system stays under your full control
+        <div className="flex flex-wrap gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? (
+              <>
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Submitting request...
+              </>
+            ) : (
+              "Submit Connection Request"
+            )}
+          </button>
+
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              disabled={submitting}
+              className="rounded-md border border-slate-600 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          )}
         </div>
+      </form>
+
+      <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-4 py-3 text-sm">
+        <p className="text-slate-400">
+          <span className="font-medium text-slate-300">Note:</span> This is a pilot program. 
+          Connection requests are reviewed manually. You’ll be notified by email once your system is connected.
+        </p>
       </div>
     </div>
   );
