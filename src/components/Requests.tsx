@@ -19,6 +19,8 @@ export function Requests({ onBack }: RequestsProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectNotes, setRejectNotes] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const fetchPendingRequests = async () => {
@@ -49,7 +51,6 @@ export function Requests({ onBack }: RequestsProps) {
     setSuccessMessage(null);
 
     try {
-      // 1. Mark the request as approved
       const { error: updateReqError } = await supabase
         .from('pilot_connection_requests')
         .update({ 
@@ -60,7 +61,6 @@ export function Requests({ onBack }: RequestsProps) {
 
       if (updateReqError) throw updateReqError;
 
-      // 2. Create or update the household record (upsert = safe create or update)
       const { error: upsertError } = await supabase
         .from('pilot_households')
         .upsert({
@@ -68,7 +68,6 @@ export function Requests({ onBack }: RequestsProps) {
           status: 'active',
           sungrow_connected_at: new Date().toISOString(),
           inverter_make: 'Sungrow',
-          // sensible defaults for new pilot households
           battery_capacity_kwh: 13.5,
           solar_kw: 6.6,
           consent_given: true,
@@ -82,14 +81,61 @@ export function Requests({ onBack }: RequestsProps) {
       }
 
       setSuccessMessage(`Approved ${req.household_id}. The household is now live with read-only data.`);
-
-      // Refresh the list so the approved request disappears
       await fetchPendingRequests();
     } catch (err: any) {
       console.error('Approve error:', err);
-      setError(err.message || 'Failed to approve request. Check console for details.');
+      setError(err?.message || 'Failed to approve request. Check console for details.');
     } finally {
       setProcessingId(null);
+    }
+  };
+
+  const startReject = (req: ConnectionRequest) => {
+    setRejectingId(req.id);
+    setRejectNotes('');
+    setError(null);
+    setSuccessMessage(null);
+  };
+
+  const cancelReject = () => {
+    setRejectingId(null);
+    setRejectNotes('');
+  };
+
+  const handleReject = async (req: ConnectionRequest) => {
+    setProcessingId(req.id);
+    setError(null);
+    setSuccessMessage(null);
+
+    const trimmedNotes = rejectNotes.trim();
+
+    try {
+      const { error: updateReqError } = await supabase
+        .from('pilot_connection_requests')
+        .update({
+          status: 'rejected',
+          reviewed_at: new Date().toISOString(),
+          review_notes: trimmedNotes || null,
+        })
+        .eq('id', req.id);
+
+      if (updateReqError) throw updateReqError;
+
+      setSuccessMessage(
+        trimmedNotes
+          ? `Rejected ${req.household_id}. Notes saved for review.`
+          : `Rejected ${req.household_id}.`
+      );
+
+      await fetchPendingRequests();
+    } catch (err: any) {
+      console.error('Reject error:', err);
+      const message = err?.message || err?.error?.message || 'Failed to reject request. Check console for details.';
+      setError(message);
+    } finally {
+      setProcessingId(null);
+      setRejectingId(null);
+      setRejectNotes('');
     }
   };
 
@@ -170,13 +216,53 @@ export function Requests({ onBack }: RequestsProps) {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => handleApprove(req)}
-                        disabled={processingId === req.id}
-                        className="rounded-lg bg-emerald-600 px-5 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-800"
-                      >
-                        {processingId === req.id ? 'Approving...' : 'Approve'}
-                      </button>
+                      {rejectingId === req.id ? (
+                        <div className="ml-auto flex w-full max-w-xs flex-col items-end gap-2">
+                          <textarea
+                            value={rejectNotes}
+                            onChange={(e) => setRejectNotes(e.target.value)}
+                            placeholder="Reason for rejection (optional)"
+                            rows={2}
+                            disabled={processingId === req.id}
+                            className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-red-500/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={cancelReject}
+                              disabled={processingId === req.id}
+                              className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-medium text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleReject(req)}
+                              disabled={processingId === req.id}
+                              className="rounded-lg bg-red-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-red-800"
+                            >
+                              {processingId === req.id ? 'Rejecting...' : 'Confirm Reject'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => handleApprove(req)}
+                            disabled={processingId === req.id}
+                            className="rounded-lg bg-emerald-600 px-5 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-800"
+                          >
+                            {processingId === req.id ? 'Approving...' : 'Approve'}
+                          </button>
+                          <button
+                            onClick={() => startReject(req)}
+                            disabled={processingId === req.id}
+                            className="rounded-lg border border-red-600/60 px-5 py-1.5 text-sm font-medium text-red-400 hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -186,7 +272,7 @@ export function Requests({ onBack }: RequestsProps) {
         )}
 
         <div className="mt-6 text-center text-xs text-slate-500">
-          Internal tool • Approving a request marks it as approved and creates/updates the household as live (read-only)
+          Internal tool • Approving creates/updates the household as live (read-only); rejecting marks the request as rejected
         </div>
       </div>
     </div>
