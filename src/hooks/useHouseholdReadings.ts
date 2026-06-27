@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 export interface HouseholdReading {
   timestamp: string;
@@ -37,7 +37,6 @@ export function useHouseholdReadings(householdId: string | null, limit = 80) {
         setError(error.message);
         setReadings([]);
       } else {
-        // Reverse so oldest → newest for the chart
         setReadings((data || []).reverse());
       }
       setLoading(false);

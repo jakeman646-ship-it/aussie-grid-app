@@ -1,10 +1,10 @@
-import { useHouseholdReadings } from "@/hooks/useHouseholdReadings";
 import { EnergyReadingsChart } from "@/components/EnergyReadingsChart";
 import {
   useHouseholdSnapshot,
   useLatestDecision,
   usePilotHousehold,
 } from "@/hooks";
+import { useHouseholdReadings } from "@/hooks/useHouseholdReadings";
 import {
   buildDecisionSummary,
   buildFriendlyReason,
@@ -354,6 +354,7 @@ export function Dashboard({
   const householdId = householdQuery.data?.household_id ?? userId;
   const snapshotQuery = useHouseholdSnapshot(householdId);
   const decisionQuery = useLatestDecision(householdId);
+  const readingsQuery = useHouseholdReadings(householdId);
 
   const loading = householdQuery.loading || snapshotQuery.loading || decisionQuery.loading;
   const queryError = householdQuery.error?.message ?? snapshotQuery.error?.message ?? decisionQuery.error?.message;
@@ -495,9 +496,7 @@ export function Dashboard({
 
       <TomorrowOutlookSection tomorrowIrradiance={tomorrowIrradiance} lowSolar={lowSolar} />
 
-      const readingsQuery = useHouseholdReadings(householdId);
-...
-<EnergyReadingsChart readings={readingsQuery.readings} />
+      <EnergyReadingsChart readings={readingsQuery.readings} />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Home usage" value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"} hint={snapshot ? "Power your home is using right now" : undefined} />
