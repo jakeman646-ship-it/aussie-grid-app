@@ -2,8 +2,10 @@ import { supabase } from '@/lib/supabase'
 
 export interface CreateConnectionRequestParams {
   householdId: string
+  inverterSerial: string
   siteId: string
-  email: string          // This is the value from the form
+  apiKey: string
+  inverterModel?: string
   notes?: string
 }
 
@@ -12,10 +14,13 @@ export async function createConnectionRequest(params: CreateConnectionRequestPar
     .from('pilot_connection_requests')
     .insert({
       household_id: params.householdId,
+      inverter_serial: params.inverterSerial,
       site_id: params.siteId,
-      account_email: params.email,   // ← Fixed: was "email", now "account_email"
+      api_key: params.apiKey,
+      inverter_model: params.inverterModel || null,
       notes: params.notes || null,
       status: 'pending_review',
+      requested_at: new Date().toISOString(),
     })
     .select()
     .single()

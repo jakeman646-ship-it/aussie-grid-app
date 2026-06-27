@@ -32,10 +32,6 @@ export default function App() {
     setView('dashboard');
   };
 
-  const handleConnectionComplete = () => {
-    setView('dashboard');
-  };
-
   const handleSwitchHousehold = (newUserId: string) => {
     setCurrentUserId(newUserId);
   };
@@ -135,7 +131,6 @@ export default function App() {
           <ConnectInverter
             currentHouseholdId={currentUserId}
             onBack={handleBackToDashboard}
-            onConnectionComplete={handleConnectionComplete}
           />
         )}
 
