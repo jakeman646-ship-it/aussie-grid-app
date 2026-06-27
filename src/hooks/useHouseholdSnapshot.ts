@@ -33,23 +33,26 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
     try {
       const { data: row, error: queryError } = await supabase
         .from("household_readings")
-        .select("*")
+        .select("timestamp, solar_kw, consumption_kw, grid_kw, battery_soc")
         .eq("household_id", householdId)
         .order("timestamp", { ascending: false })
         .limit(1)
         .single();
 
-      if (queryError) throw queryError;
+      if (queryError && queryError.code !== "PGRST116") {
+        // PGRST116 = no rows found (not a real error for us)
+        throw queryError;
+      }
 
       if (row) {
         const mapped: HouseholdSnapshot = {
-          battery_soc: Number(row.battery_percent) || 0,
+          battery_soc: Number(row.battery_soc) || 0,
           solar_kw: Number(row.solar_kw) || 0,
-          grid_kw: Number(row.grid_flow_kw) || 0,
+          grid_kw: Number(row.grid_kw) || 0,
           consumption_kw: Number(row.consumption_kw) || 0,
           last_updated: row.timestamp,
-          mode: row.current_mode,
-          reason: `Battery at ${row.battery_percent}% • ${row.grid_flow_label || "Grid normal"}`,
+          mode: "self_consume", // placeholder until we have agent_decisions
+          reason: "Based on current solar, battery and grid conditions",
           data_source: "supabase",
         };
         setData(mapped);
@@ -57,6 +60,7 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
         setData(null);
       }
     } catch (err) {
+      console.error("Snapshot error:", err);
       setError(err instanceof Error ? err : new Error("Failed to load snapshot"));
     } finally {
       setLoading(false);
