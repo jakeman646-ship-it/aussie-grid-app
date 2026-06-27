@@ -1,3 +1,4 @@
+import { useHouseholdReadings } from "@/hooks/useHouseholdReadings";
 import { EnergyReadingsChart } from "@/components/EnergyReadingsChart";
 import {
   useHouseholdSnapshot,
@@ -494,7 +495,9 @@ export function Dashboard({
 
       <TomorrowOutlookSection tomorrowIrradiance={tomorrowIrradiance} lowSolar={lowSolar} />
 
-      <EnergyReadingsChart readings={[]} />
+      const readingsQuery = useHouseholdReadings(householdId);
+...
+<EnergyReadingsChart readings={readingsQuery.readings} />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Home usage" value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"} hint={snapshot ? "Power your home is using right now" : undefined} />

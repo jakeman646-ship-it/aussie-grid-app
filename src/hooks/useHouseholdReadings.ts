@@ -1,65 +1,50 @@
-import { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
-export interface HouseholdReadingPoint {
+export interface HouseholdReading {
   timestamp: string;
-  solar_kw: number;
-  consumption_kw: number;
-  grid_kw: number;
-  battery_power_kw: number;
+  solar_kw?: number;
+  consumption_kw?: number;
+  grid_kw?: number;
+  battery_power_kw?: number;
 }
 
-interface UseHouseholdReadingsResult {
-  data: HouseholdReadingPoint[];
-  loading: boolean;
-  error: Error | null;
-  refetch: () => void;
-}
-
-const READINGS_LIMIT = 48;
-
-export function useHouseholdReadings(householdId: string): UseHouseholdReadingsResult {
-  const [data, setData] = useState<HouseholdReadingPoint[]>([]);
+export function useHouseholdReadings(householdId: string | null, limit = 80) {
+  const [readings, setReadings] = useState<HouseholdReading[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchReadings = async () => {
-    setLoading(true);
-    setError(null);
+  useEffect(() => {
+    if (!householdId) {
+      setReadings([]);
+      setLoading(false);
+      return;
+    }
 
-    try {
-      const { data: rows, error: queryError } = await supabase
+    const fetchReadings = async () => {
+      setLoading(true);
+      setError(null);
+
+      const { data, error } = await supabase
         .from("household_readings")
         .select("timestamp, solar_kw, consumption_kw, grid_kw, battery_power_kw")
         .eq("household_id", householdId)
         .order("timestamp", { ascending: false })
-        .limit(READINGS_LIMIT);
+        .limit(limit);
 
-      if (queryError) throw queryError;
-
-      const points: HouseholdReadingPoint[] = (rows ?? [])
-        .map((row: any) => ({
-          timestamp: row.timestamp,
-          solar_kw: Number(row.solar_kw) || 0,
-          consumption_kw: Number(row.consumption_kw) || 0,
-          grid_kw: Number(row.grid_kw) || 0,
-          battery_power_kw: Number(row.battery_power_kw) || 0,
-        }))
-        .reverse();
-
-      setData(points);
-    } catch (err) {
-      console.error("Readings error:", err);
-      setError(err instanceof Error ? err : new Error("Failed to load readings"));
-      setData([]);
-    } finally {
+      if (error) {
+        console.error("useHouseholdReadings error:", error);
+        setError(error.message);
+        setReadings([]);
+      } else {
+        // Reverse so oldest → newest for the chart
+        setReadings((data || []).reverse());
+      }
       setLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
-    if (householdId) fetchReadings();
-  }, [householdId]);
+    fetchReadings();
+  }, [householdId, limit]);
 
-  return { data, loading, error, refetch: fetchReadings };
+  return { readings, loading, error };
 }
