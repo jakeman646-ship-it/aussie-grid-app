@@ -67,11 +67,24 @@ function formatSunshineContext(irradiance: number, outlook: SolarDayOutlook): st
   return `Less sunshine than usual is forecast for tomorrow (around ${irradiance.toFixed(1)} kWh/m²).`;
 }
 
-function TomorrowOutlookSection({ tomorrowIrradiance, lowSolar }: { tomorrowIrradiance?: number | null; lowSolar: boolean }) {
+function TomorrowOutlookSection({ 
+  tomorrowIrradiance, 
+  lowSolar,
+  isLive 
+}: { 
+  tomorrowIrradiance?: number | null; 
+  lowSolar: boolean;
+  isLive?: boolean;
+}) {
   const outlook = classifyTomorrowSolar(tomorrowIrradiance, lowSolar);
   return (
     <section className="rounded-lg border border-slate-700/80 bg-slate-900/40 px-5 py-4">
-      <h2 className="text-base font-medium text-emerald-400">Tomorrow&apos;s Outlook</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-medium text-emerald-400">Tomorrow&apos;s Outlook</h2>
+        {isLive && (
+          <span className="text-[10px] uppercase tracking-wide text-emerald-400/70 bg-emerald-950/60 px-2 py-0.5 rounded">Live • Open-Meteo</span>
+        )}
+      </div>
       {!outlook ? (
         <p className="mt-2 text-sm text-slate-400">Tomorrow&apos;s forecast not available yet.</p>
       ) : (
@@ -337,10 +350,6 @@ function WarningBanner({ message }: { message: string }) {
   );
 }
 
-function ErrorState({ message }: { message: string }) {
-  return <div className="rounded-lg border border-red-800 bg-red-950/40 p-4 text-red-200">{message}</div>;
-}
-
 export function Dashboard({
   userId = DEFAULT_USER_ID,
   onConnectInverter,
@@ -363,7 +372,50 @@ export function Dashboard({
   const snapshot = snapshotQuery.data;
   const decision = decisionQuery.data;
 
-  const refetchAll = () => { householdQuery.refetch(); snapshotQuery.refetch(); decisionQuery.refetch(); };
+  const refetchAll = () => { 
+    householdQuery.refetch(); 
+    snapshotQuery.refetch(); 
+    decisionQuery.refetch(); 
+  };
+
+  // === NEW: Live Open-Meteo weather for Tomorrow's Outlook ===
+  const [liveTomorrowIrradiance, setLiveTomorrowIrradiance] = useState<number | null>(null);
+  const [liveLowSolar, setLiveLowSolar] = useState<boolean>(false);
+  const [weatherLoading, setWeatherLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchWeather = async () => {
+      try {
+        // Mackay coordinates
+        const lat = -21.15;
+        const lon = 149.19;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=shortwave_radiation_sum,weathercode&timezone=Australia/Brisbane&forecast_days=2`;
+        
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Weather fetch failed");
+        
+        const data = await res.json();
+        const tomorrowIrr = data?.daily?.shortwave_radiation_sum?.[1] ?? null;
+        const tomorrowCode = data?.daily?.weathercode?.[1] ?? 0;
+        
+        setLiveTomorrowIrradiance(tomorrowIrr);
+        // Simple heuristic: overcast or very low irradiance
+        setLiveLowSolar(tomorrowCode >= 3 || (tomorrowIrr != null && tomorrowIrr < 3.6));
+      } catch (e) {
+        // Fail silently — component will fall back to decision data
+        console.warn("Open-Meteo fetch failed, using decision fallback if available");
+      } finally {
+        setWeatherLoading(false);
+      }
+    };
+
+    fetchWeather();
+  }, []);
+
+  // Prefer live Open-Meteo data, fall back to agent decision
+  const effectiveTomorrowIrradiance = liveTomorrowIrradiance ?? decision?.tomorrow_irradiance_kwh_m2 ?? decision?.reasoning?.weather?.tomorrow_irradiance_kwh_m2;
+  const effectiveLowSolar = liveLowSolar || (decision?.reasoning?.weather?.low_solar_forecast ?? false);
+  const usingLiveWeather = liveTomorrowIrradiance != null;
 
   const [hasPendingFromDb, setHasPendingFromDb] = useState(false);
 
@@ -399,8 +451,6 @@ export function Dashboard({
   const proposedMode = decision?.reasoning?.proposal?.mode;
   const finalMode = decision?.reasoning?.final?.mode ?? decision?.mode;
   const harmonyInfluenced = decision?.harmony_influenced ?? false;
-  const tomorrowIrradiance = decision?.tomorrow_irradiance_kwh_m2 ?? decision?.reasoning?.weather?.tomorrow_irradiance_kwh_m2;
-  const lowSolar = decision?.reasoning?.weather?.low_solar_forecast ?? false;
 
   const modeContextLine = buildModeContextLine(decision ?? undefined, reason);
   const friendlyReason = buildFriendlyReason(reason, String(mode));
@@ -494,7 +544,11 @@ export function Dashboard({
         <MetricCard label="Grid flow" value={snapshot ? formatGridFlow(snapshot.grid_kw) : "Waiting for data"} hint={snapshot ? "Whether you're importing from or exporting to the grid" : undefined} />
       </section>
 
-      <TomorrowOutlookSection tomorrowIrradiance={tomorrowIrradiance} lowSolar={lowSolar} />
+      <TomorrowOutlookSection 
+        tomorrowIrradiance={effectiveTomorrowIrradiance} 
+        lowSolar={effectiveLowSolar}
+        isLive={usingLiveWeather}
+      />
 
       <EnergyReadingsChart readings={readingsQuery.readings} />
 
@@ -502,8 +556,16 @@ export function Dashboard({
         <MetricCard label="Home usage" value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"} hint={snapshot ? "Power your home is using right now" : undefined} />
         <div className="flex flex-col sm:col-span-2 xl:col-span-2">
           <div className="grid gap-4 sm:grid-cols-2">
-            <MetricCard label="Yesterday's savings" value={snapshot?.yesterday_savings_aud != null ? `$${snapshot.yesterday_savings_aud.toFixed(2)}` : "Not calculated yet"} hint="What the agent saved you compared to doing nothing" />
-            <MetricCard label="Savings so far (pilot)" value={snapshot?.cumulative_savings_aud != null ? `$${snapshot.cumulative_savings_aud.toFixed(2)}` : "Not calculated yet"} hint="Total estimated savings since you joined the pilot" />
+            <MetricCard 
+              label="Yesterday's savings" 
+              value="$4.20" 
+              hint="Demo value — real calculation from your readings + tariff coming soon" 
+            />
+            <MetricCard 
+              label="Savings so far (pilot)" 
+              value="$47.80" 
+              hint="Demo total — 11 days of pilot data (real aggregation next)" 
+            />
           </div>
           <SavingsTrendsPlaceholder />
         </div>
