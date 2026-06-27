@@ -19,6 +19,7 @@ import {
   formatTimestamp,
 } from "@/lib/modeLabels";
 import { formatAppVersion } from "@/lib/version";
+import { calculateSavingsFromReadings } from "@/lib/calculateSavings";
 import type { AgentDecision } from "@/types/agentDecision";
 import type { Mode } from "@/types/mode";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
@@ -378,7 +379,7 @@ export function Dashboard({
     decisionQuery.refetch(); 
   };
 
-  // === NEW: Live Open-Meteo weather for Tomorrow's Outlook ===
+  // Live Open-Meteo weather
   const [liveTomorrowIrradiance, setLiveTomorrowIrradiance] = useState<number | null>(null);
   const [liveLowSolar, setLiveLowSolar] = useState<boolean>(false);
   const [weatherLoading, setWeatherLoading] = useState(true);
@@ -386,7 +387,6 @@ export function Dashboard({
   useEffect(() => {
     const fetchWeather = async () => {
       try {
-        // Mackay coordinates
         const lat = -21.15;
         const lon = 149.19;
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=shortwave_radiation_sum,weathercode&timezone=Australia/Brisbane&forecast_days=2`;
@@ -399,11 +399,9 @@ export function Dashboard({
         const tomorrowCode = data?.daily?.weathercode?.[1] ?? 0;
         
         setLiveTomorrowIrradiance(tomorrowIrr);
-        // Simple heuristic: overcast or very low irradiance
         setLiveLowSolar(tomorrowCode >= 3 || (tomorrowIrr != null && tomorrowIrr < 3.6));
       } catch (e) {
-        // Fail silently — component will fall back to decision data
-        console.warn("Open-Meteo fetch failed, using decision fallback if available");
+        console.warn("Open-Meteo fetch failed");
       } finally {
         setWeatherLoading(false);
       }
@@ -412,10 +410,12 @@ export function Dashboard({
     fetchWeather();
   }, []);
 
-  // Prefer live Open-Meteo data, fall back to agent decision
   const effectiveTomorrowIrradiance = liveTomorrowIrradiance ?? decision?.tomorrow_irradiance_kwh_m2 ?? decision?.reasoning?.weather?.tomorrow_irradiance_kwh_m2;
   const effectiveLowSolar = liveLowSolar || (decision?.reasoning?.weather?.low_solar_forecast ?? false);
   const usingLiveWeather = liveTomorrowIrradiance != null;
+
+  // === REAL SAVINGS CALCULATION (improved daily aggregation) ===
+  const savings = calculateSavingsFromReadings(readingsQuery.readings || []);
 
   const [hasPendingFromDb, setHasPendingFromDb] = useState(false);
 
@@ -552,24 +552,33 @@ export function Dashboard({
 
       <EnergyReadingsChart readings={readingsQuery.readings} />
 
+      {/* Real savings cards - improved daily aggregation */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Home usage" value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"} hint={snapshot ? "Power your home is using right now" : undefined} />
+        <MetricCard 
+          label="Home usage" 
+          value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"} 
+          hint={snapshot ? "Power your home is using right now" : undefined} 
+        />
         <div className="flex flex-col sm:col-span-2 xl:col-span-2">
           <div className="grid gap-4 sm:grid-cols-2">
             <MetricCard 
               label="Yesterday's savings" 
-              value="$4.20" 
-              hint="Demo value — real calculation from your readings + tariff coming soon" 
+              value={savings.yesterdaySavings > 0 ? `$${savings.yesterdaySavings}` : "$0.00"} 
+              hint={savings.dataNote || "Calculated using Ergon 12D TOU + 6c FIT"} 
             />
             <MetricCard 
               label="Savings so far (pilot)" 
-              value="$47.80" 
-              hint="Demo total — 11 days of pilot data (real aggregation next)" 
+              value={savings.pilotProjectedTotal > 0 ? `$${savings.pilotProjectedTotal}` : "$0.00"} 
+              hint={`${savings.daysOfData} day${savings.daysOfData === 1 ? '' : 's'} of data • $${savings.dailyAverage}/day average`} 
             />
           </div>
           <SavingsTrendsPlaceholder />
         </div>
-        <MetricCard label="Last updated" value={snapshot ? formatTimestamp(snapshot.last_updated) : "—"} hint={snapshot ? "When we last received data from your system" : undefined} />
+        <MetricCard 
+          label="Last updated" 
+          value={snapshot ? formatTimestamp(snapshot.last_updated) : "—"} 
+          hint={snapshot ? "When we last received data from your system" : undefined} 
+        />
       </section>
 
       <OperatingModesSection activeMode={String(mode)} />
