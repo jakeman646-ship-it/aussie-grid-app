@@ -8,7 +8,6 @@ export interface ConnectInverterProps {
 }
 
 interface FormData {
-  householdLabel: string;
   accountEmail: string;
   siteId: string;
   inverterSerial: string;
@@ -20,13 +19,12 @@ interface ConnectionStatus {
   message?: string;
 }
 
-export function ConnectInverter({
-  onBack,
-  onConnectionComplete,
-  currentHouseholdId
+export function ConnectInverter({ 
+  onBack, 
+  onConnectionComplete, 
+  currentHouseholdId 
 }: ConnectInverterProps) {
   const [formData, setFormData] = useState<FormData>({
-    householdLabel: "",
     accountEmail: "",
     siteId: "",
     inverterSerial: "",
@@ -38,14 +36,18 @@ export function ConnectInverter({
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: 'none' });
   const [checkingStatus, setCheckingStatus] = useState(true);
 
+  // Check if this household already has a connection request or is connected
   useEffect(() => {
     const checkExistingConnection = async () => {
       if (!currentHouseholdId) {
         setCheckingStatus(false);
         return;
       }
+
       setCheckingStatus(true);
+
       try {
+        // Check for existing pending request
         const { data: pendingRequest } = await supabase
           .from('pilot_connection_requests')
           .select('id, status')
@@ -54,14 +56,15 @@ export function ConnectInverter({
           .maybeSingle();
 
         if (pendingRequest) {
-          setConnectionStatus({
-            status: 'pending',
-            message: 'Your connection request is currently being reviewed by the team.'
+          setConnectionStatus({ 
+            status: 'pending', 
+            message: 'Your connection request is currently being reviewed by the team.' 
           });
           setCheckingStatus(false);
           return;
         }
 
+        // Check if household is already active/connected
         const { data: household } = await supabase
           .from('pilot_households')
           .select('status, sungrow_connected_at')
@@ -69,9 +72,9 @@ export function ConnectInverter({
           .maybeSingle();
 
         if (household && (household.status === 'active' || household.sungrow_connected_at)) {
-          setConnectionStatus({
-            status: 'connected',
-            message: 'This household is already connected and sending live data.'
+          setConnectionStatus({ 
+            status: 'connected', 
+            message: 'Your Sungrow system is already connected and sending live data.' 
           });
         } else {
           setConnectionStatus({ status: 'none' });
@@ -80,22 +83,16 @@ export function ConnectInverter({
         console.error('Error checking connection status:', err);
         setConnectionStatus({ status: 'none' });
       }
+
       setCheckingStatus(false);
     };
+
     checkExistingConnection();
   }, [currentHouseholdId]);
 
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (error) setError(null);
-  };
-
-  const generateHouseholdId = (label: string, siteId: string): string => {
-    if (label.trim()) {
-      return label.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").slice(0, 40);
-    }
-    const short = siteId.trim().replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || Date.now().toString(36);
-    return `pending-${short}`;
   };
 
   const validateForm = (): boolean => {
@@ -117,9 +114,12 @@ export function ConnectInverter({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;
 
-    const targetHouseholdId = generateHouseholdId(formData.householdLabel, formData.siteId);
+    if (!validateForm()) return;
+    if (!currentHouseholdId) {
+      setError("Missing household ID. Please return to the dashboard and try again.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -128,20 +128,23 @@ export function ConnectInverter({
       const { error: insertError } = await supabase
         .from('pilot_connection_requests')
         .insert({
-          household_id: targetHouseholdId,
+          household_id: currentHouseholdId,
           site_id: formData.siteId.trim(),
-          account_email: formData.accountEmail.trim().toLowerCase(),
+          account_email: formData.accountEmail.trim(),
           inverter_serial: formData.inverterSerial.trim() || null,
           notes: formData.notes.trim() || null,
           status: 'pending_review',
           requested_at: new Date().toISOString(),
         });
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        throw insertError;
+      }
 
       setIsSubmitting(false);
       setIsSubmitted(true);
 
+      // Let parent know after user sees success state
       setTimeout(() => {
         onConnectionComplete?.();
       }, 2200);
@@ -153,11 +156,12 @@ export function ConnectInverter({
   };
 
   const resetForm = () => {
-    setFormData({ householdLabel: "", accountEmail: "", siteId: "", inverterSerial: "", notes: "" });
+    setFormData({ accountEmail: "", siteId: "", inverterSerial: "", notes: "" });
     setIsSubmitted(false);
     setError(null);
   };
 
+  // Show status screens if already pending or connected
   if (connectionStatus.status === 'pending') {
     return (
       <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
@@ -168,6 +172,27 @@ export function ConnectInverter({
           <h1 className="text-2xl font-semibold text-amber-400">Request already submitted</h1>
           <p className="mt-3 text-slate-300">{connectionStatus.message}</p>
           <p className="mt-2 text-sm text-slate-400">We'll email you as soon as it's approved and your dashboard goes live.</p>
+          
+          {onBack && (
+            <button onClick={onBack} className="mt-8 rounded-xl border border-slate-600 px-6 py-2.5 text-sm hover:bg-slate-900">
+              ← Back to Dashboard
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (connectionStatus.status === 'connected') {
+    return (
+      <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
+        <div className="mx-auto max-w-2xl pt-12 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20">
+            <span className="text-3xl">✓</span>
+          </div>
+          <h1 className="text-2xl font-semibold text-emerald-400">You're already connected</h1>
+          <p className="mt-3 text-slate-300">{connectionStatus.message}</p>
+          
           {onBack && (
             <button onClick={onBack} className="mt-8 rounded-xl border border-slate-600 px-6 py-2.5 text-sm hover:bg-slate-900">
               ← Back to Dashboard
@@ -181,6 +206,7 @@ export function ConnectInverter({
   return (
     <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
       <div className="mx-auto max-w-3xl">
+        {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {onBack && (
@@ -195,54 +221,53 @@ export function ConnectInverter({
           </div>
         </div>
 
+        {/* Pre-pilot reassurance */}
         <div className="mb-6 rounded-lg border border-emerald-600/40 bg-emerald-950/20 px-5 py-4">
           <p className="text-sm font-medium text-emerald-300">Read-only during pre-pilot learning phase</p>
           <p className="mt-1 text-sm leading-relaxed text-emerald-100/90">
-            We will only <span className="font-semibold">read</span> data from your solar and battery system.
-            We cannot control your inverter or change any settings.
+            We will only <span className="font-semibold">read</span> data from your solar and battery system. 
+            We cannot control your inverter or change any settings. This keeps everything simple and safe while we learn what works best for Mackay households.
           </p>
         </div>
 
-        {connectionStatus.status === 'connected' && (
-          <div className="mb-6 rounded-lg border border-emerald-600/40 bg-emerald-950/20 px-5 py-4">
-            <p className="text-sm font-medium text-emerald-300">✓ {connectionStatus.message}</p>
-            <p className="mt-1 text-sm text-emerald-100/90">
-              You can still submit a new request below (e.g. for a different property).
-            </p>
-          </div>
-        )}
-
         {!isSubmitted ? (
           <>
+            {/* Why connect */}
             <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5">
               <h2 className="text-lg font-medium text-emerald-400">Why connect your system?</h2>
               <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                See your live solar production, battery charge level, and grid flow. Your smart agent will learn from your real data to give better daily suggestions.
+                Connecting lets you see your live solar production, battery charge level, and grid flow right here in the pilot dashboard. 
+                Your smart agent will also start learning from your home’s real data so it can give you better daily suggestions.
               </p>
             </div>
 
+            {/* How to connect - improved instructions */}
             <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5">
               <h3 className="text-base font-semibold text-emerald-400">How to connect (takes about 2 minutes)</h3>
               <ol className="mt-3 space-y-3 text-sm text-slate-300">
                 <li className="flex gap-3">
                   <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">1</span>
-                  <span>Log into your <span className="font-medium">Sungrow iSolarCloud</span> account</span>
+                  <span>Log into your <span className="font-medium">Sungrow iSolarCloud</span> account (app or web at <span className="font-mono text-xs">isolarcloud.com</span> or the Sungrow app)</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">2</span>
-                  <span>Go to your plant → <span className="font-medium">Settings → General information</span> and copy the <span className="font-medium">Plant ID</span> (Site ID)</span>
+                  <span>Go to your plant → <span className="font-medium">Settings → General information</span>. Copy the <span className="font-medium">Plant ID</span> (also called Site ID or ps-id). It’s usually a long number.</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">3</span>
-                  <span>(Optional) Copy your inverter’s <span className="font-medium">Serial Number</span></span>
+                  <span>(Optional but helpful) Go to Devices and copy your inverter’s <span className="font-medium">Serial Number</span> (on the physical inverter sticker too)</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">4</span>
                   <span>Enter the details below. We’ll request read-only access on your behalf.</span>
                 </li>
               </ol>
+              <p className="mt-4 text-xs text-slate-500">
+                Note: Full third-party API access sometimes requires an extra approval step via the Sungrow Developer Portal. We’ll guide you if we need it for richer data later.
+              </p>
             </div>
 
+            {/* Form */}
             <form onSubmit={handleSubmit} className="rounded-xl border border-slate-700 bg-slate-900 p-6">
               <h3 className="text-lg font-medium text-emerald-400">Enter your Sungrow details</h3>
 
@@ -253,19 +278,6 @@ export function ConnectInverter({
               )}
 
               <div className="mt-5 space-y-5">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                    Household name / label <span className="text-slate-500">(optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.householdLabel}
-                    onChange={(e) => handleInputChange("householdLabel", e.target.value)}
-                    placeholder="e.g. Jack's Place or 12 Davlyn Dr"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-300">
                     Sungrow iSolarCloud account email <span className="text-red-400">*</span>
@@ -315,8 +327,8 @@ export function ConnectInverter({
                   <textarea
                     value={formData.notes}
                     onChange={(e) => handleInputChange("notes", e.target.value)}
-                    placeholder="e.g. 8.2kW system with 13.5kWh battery"
-                    rows={2}
+                    placeholder="e.g. 8.2kW system with 13.5kWh battery, or anything the team should know"
+                    rows={3}
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
@@ -336,22 +348,23 @@ export function ConnectInverter({
             </form>
           </>
         ) : (
-          /* Improved Success State */
+          /* Success state */
           <div className="rounded-xl border border-emerald-600/40 bg-emerald-950/10 p-8 text-center">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20">
               <span className="text-3xl">✓</span>
             </div>
             <h2 className="text-2xl font-semibold text-emerald-400">Request received — thank you!</h2>
             <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-300">
-              We’ve received your connection request and will now review it.
+              We’ve received your details and will now request read-only access to your Sungrow system.
             </p>
 
             <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5 text-left text-sm">
-              <p className="font-medium text-emerald-300 mb-2">What happens next:</p>
-              <ul className="space-y-1.5 text-slate-300">
-                <li>• We verify your Site ID and request read-only access from Sungrow</li>
-                <li>• You’ll receive a confirmation email once approved (usually within 24–48 hours)</li>
-                <li>• Your dashboard will then show live solar, battery, and grid data</li>
+              <p className="font-medium text-emerald-300">What happens next:</p>
+              <ul className="mt-2 space-y-1.5 text-slate-300">
+                <li>• Our team verifies your Site ID and requests read-only access</li>
+                <li>• You’ll receive a confirmation email (usually within 24–48 hours)</li>
+                <li>• Once approved, your dashboard will show live solar, battery and grid data</li>
+                <li>• Your smart agent starts learning from your real home usage (still read-only)</li>
               </ul>
             </div>
 
@@ -367,7 +380,7 @@ export function ConnectInverter({
             </div>
 
             <p className="mt-6 text-xs text-slate-500">
-              Questions? Just reply to the confirmation email when you receive it.
+              Questions? Reply to the confirmation email or check the Help section in the dashboard.
             </p>
           </div>
         )}

@@ -19,6 +19,7 @@ import {
   formatTimestamp,
 } from "@/lib/modeLabels";
 import { formatAppVersion } from "@/lib/version";
+import { calculateSavingsFromReadings } from "@/lib/calculateSavings";
 import type { AgentDecision } from "@/types/agentDecision";
 import type { Mode } from "@/types/mode";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
@@ -67,12 +68,12 @@ function formatSunshineContext(irradiance: number, outlook: SolarDayOutlook): st
   return `Less sunshine than usual is forecast for tomorrow (around ${irradiance.toFixed(1)} kWh/m²).`;
 }
 
-function TomorrowOutlookSection({
-  tomorrowIrradiance,
+function TomorrowOutlookSection({ 
+  tomorrowIrradiance, 
   lowSolar,
-  isLive
-}: {
-  tomorrowIrradiance?: number | null;
+  isLive 
+}: { 
+  tomorrowIrradiance?: number | null; 
   lowSolar: boolean;
   isLive?: boolean;
 }) {
@@ -125,9 +126,7 @@ function MetricCard({ label, value, hint }: { label: string; value: string; hint
 function SavingsTrendsPlaceholder() {
   return (
     <div className="mt-4 rounded-md bg-slate-900/60 px-3 py-2">
-      <p className="text-sm leading-relaxed text-slate-400">
-        Daily and weekly savings trends will appear here once we have enough of your live data.
-      </p>
+      <p className="text-sm leading-relaxed text-slate-400">Daily and weekly savings views will be available in a future update.</p>
     </div>
   );
 }
@@ -184,6 +183,7 @@ function ConnectYourSystemPrompt({
   onConnect?: () => void;
 }) {
   if (inverterMake === "Sungrow" && isConnected) return null;
+
   return (
     <section className="rounded-xl border border-emerald-600/40 bg-emerald-950/20 px-5 py-5">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -227,6 +227,7 @@ function NextStepsSection({
       </section>
     );
   }
+
   return (
     <section className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-5 py-4">
       <h3 className="text-base font-semibold text-emerald-400">You’re connected — here’s what’s next</h3>
@@ -238,34 +239,6 @@ function NextStepsSection({
       </ul>
       <p className="mt-3 text-xs text-emerald-300/80">Thanks for being part of the early group — your data is helping us build something useful for Mackay households.</p>
     </section>
-  );
-}
-
-function PendingRequestBanner() {
-  return (
-    <div className="rounded-xl border border-amber-600/40 bg-amber-950/20 px-6 py-5">
-      <div className="flex flex-col gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-amber-300">Connection request received — thank you!</h3>
-          <p className="mt-1 text-sm text-amber-100/90">
-            We’ve got your details and our team is now reviewing your request.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-amber-700/40 bg-amber-950/30 px-4 py-3 text-sm">
-          <p className="font-medium text-amber-200 mb-2">What happens next:</p>
-          <ul className="space-y-1.5 text-amber-100/90">
-            <li>• We verify your Site ID and request read-only access from Sungrow</li>
-            <li>• You’ll receive a confirmation email once approved (usually within 1–2 business days)</li>
-            <li>• Once live, this dashboard will show your real solar, battery, and grid data</li>
-          </ul>
-        </div>
-
-        <p className="text-xs text-amber-300/80">
-          You can safely close this page — we’ll email you when everything is ready.
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -286,10 +259,12 @@ function DevHouseholdSwitcher({
   const isDev = process.env.NODE_ENV === "development";
   const looksLikeTest = currentId.includes("test") || currentId.includes("pilot") || currentId.includes("mackay");
   if (!isDev && !looksLikeTest) return null;
+
   const options = [
     { id: currentId, label: `${currentId} (current)` },
     ...DEV_TEST_HOUSEHOLDS.filter((h) => h.id !== currentId),
   ];
+
   return (
     <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-950/30 px-2.5 py-1 text-[10px]">
       <span className="font-mono font-semibold text-amber-400">DEV</span>
@@ -390,32 +365,39 @@ export function Dashboard({
   const snapshotQuery = useHouseholdSnapshot(householdId);
   const decisionQuery = useLatestDecision(householdId);
   const readingsQuery = useHouseholdReadings(householdId);
+
   const loading = householdQuery.loading || snapshotQuery.loading || decisionQuery.loading;
   const queryError = householdQuery.error?.message ?? snapshotQuery.error?.message ?? decisionQuery.error?.message;
+
   const household = householdQuery.data;
   const snapshot = snapshotQuery.data;
   const decision = decisionQuery.data;
-  const refetchAll = () => {
-    householdQuery.refetch();
-    snapshotQuery.refetch();
-    decisionQuery.refetch();
+
+  const refetchAll = () => { 
+    householdQuery.refetch(); 
+    snapshotQuery.refetch(); 
+    decisionQuery.refetch(); 
   };
 
   // Live Open-Meteo weather
   const [liveTomorrowIrradiance, setLiveTomorrowIrradiance] = useState<number | null>(null);
   const [liveLowSolar, setLiveLowSolar] = useState<boolean>(false);
   const [weatherLoading, setWeatherLoading] = useState(true);
+
   useEffect(() => {
     const fetchWeather = async () => {
       try {
         const lat = -21.15;
         const lon = 149.19;
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=shortwave_radiation_sum,weathercode&timezone=Australia/Brisbane&forecast_days=2`;
+        
         const res = await fetch(url);
         if (!res.ok) throw new Error("Weather fetch failed");
+        
         const data = await res.json();
         const tomorrowIrr = data?.daily?.shortwave_radiation_sum?.[1] ?? null;
         const tomorrowCode = data?.daily?.weathercode?.[1] ?? 0;
+        
         setLiveTomorrowIrradiance(tomorrowIrr);
         setLiveLowSolar(tomorrowCode >= 3 || (tomorrowIrr != null && tomorrowIrr < 3.6));
       } catch (e) {
@@ -424,15 +406,22 @@ export function Dashboard({
         setWeatherLoading(false);
       }
     };
+
     fetchWeather();
   }, []);
+
   const effectiveTomorrowIrradiance = liveTomorrowIrradiance ?? decision?.tomorrow_irradiance_kwh_m2 ?? decision?.reasoning?.weather?.tomorrow_irradiance_kwh_m2;
   const effectiveLowSolar = liveLowSolar || (decision?.reasoning?.weather?.low_solar_forecast ?? false);
   const usingLiveWeather = liveTomorrowIrradiance != null;
 
+  // === REAL SAVINGS CALCULATION (improved daily aggregation) ===
+  const savings = calculateSavingsFromReadings(readingsQuery.readings || []);
+
   const [hasPendingFromDb, setHasPendingFromDb] = useState(false);
+
   useEffect(() => {
     if (!householdId) return;
+
     const checkPendingRequest = async () => {
       const { data, error } = await supabase
         .from("pilot_connection_requests")
@@ -440,14 +429,17 @@ export function Dashboard({
         .eq("household_id", householdId)
         .eq("status", "pending_review")
         .limit(1);
+
       if (!error && data && data.length > 0) {
         setHasPendingFromDb(true);
       } else {
         setHasPendingFromDb(false);
       }
     };
+
     checkPendingRequest();
   }, [householdId]);
+
   const effectivePending = hasPendingConnectionRequest || hasPendingFromDb;
 
   if (loading && !snapshot && !household && !decision) return <LoadingState />;
@@ -455,9 +447,11 @@ export function Dashboard({
   const mode = snapshot?.mode ?? decision?.mode ?? "—";
   const reason = snapshot?.reason ?? decision?.reason ?? "No decision recorded";
   const dataSource = snapshot?.data_source ?? "simulated";
+
   const proposedMode = decision?.reasoning?.proposal?.mode;
   const finalMode = decision?.reasoning?.final?.mode ?? decision?.mode;
   const harmonyInfluenced = decision?.harmony_influenced ?? false;
+
   const modeContextLine = buildModeContextLine(decision ?? undefined, reason);
   const friendlyReason = buildFriendlyReason(reason, String(mode));
 
@@ -473,14 +467,18 @@ export function Dashboard({
             </p>
           )}
         </div>
+
         <div className="flex items-center gap-3">
           <DevHouseholdSwitcher currentId={userId} onSwitch={onSwitchHousehold} />
+
           <span className={`rounded-full px-3 py-1 text-xs font-medium ${dataSource === "supabase" ? "bg-emerald-900/60 text-emerald-300" : "bg-amber-900/40 text-amber-200"}`}>
             {dataSource === "supabase" ? "Live data" : "Sample data for now"}
           </span>
+
           <button onClick={refetchAll} className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500">
             Refresh
           </button>
+
           {onOpenHelp && <button onClick={onOpenHelp} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Help</button>}
           {onOpenProfile && <button onClick={onOpenProfile} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Profile</button>}
           {onConnectInverter && <button onClick={onConnectInverter} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Connect Inverter</button>}
@@ -489,8 +487,8 @@ export function Dashboard({
       </header>
 
       {queryError && (
-        <WarningBanner
-          message={`Data temporarily unavailable: ${queryError}. You can still connect your system below — this is normal for new pilot households.`}
+        <WarningBanner 
+          message={`Data temporarily unavailable: ${queryError}. You can still connect your system below — this is normal for new pilot households.`} 
         />
       )}
 
@@ -505,7 +503,10 @@ export function Dashboard({
           ) : effectivePending ? (
             <div className="flex items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-              <span className="text-sm font-medium text-amber-200">Connection request pending review</span>
+              <div>
+                <span className="text-sm font-medium text-amber-200">Connection request pending review</span>
+                <p className="text-xs text-amber-300/80">Our team will activate read-only access within 1–2 business days</p>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-3">
@@ -513,6 +514,7 @@ export function Dashboard({
               <span className="text-sm font-medium text-slate-200">Sungrow system not connected yet</span>
             </div>
           )}
+
           {!household.sungrow_connected_at && !effectivePending && onConnectInverter && (
             <button onClick={onConnectInverter} className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 transition-colors">
               Connect Sungrow
@@ -521,16 +523,15 @@ export function Dashboard({
         </div>
       )}
 
-      {/* Prominent pending request banner — shows when user has submitted but not yet approved */}
-      {effectivePending && <PendingRequestBanner />}
-
       <ReadOnlyPilotBanner />
       <WelcomePilotOverview />
+
       <ConnectYourSystemPrompt
         inverterMake={household?.inverter_make}
         isConnected={!!household?.sungrow_connected_at}
         onConnect={onConnectInverter}
       />
+
       <NextStepsSection
         isConnected={!!household?.sungrow_connected_at}
         onConnect={onConnectInverter}
@@ -543,40 +544,40 @@ export function Dashboard({
         <MetricCard label="Grid flow" value={snapshot ? formatGridFlow(snapshot.grid_kw) : "Waiting for data"} hint={snapshot ? "Whether you're importing from or exporting to the grid" : undefined} />
       </section>
 
-      <TomorrowOutlookSection
-        tomorrowIrradiance={effectiveTomorrowIrradiance}
+      <TomorrowOutlookSection 
+        tomorrowIrradiance={effectiveTomorrowIrradiance} 
         lowSolar={effectiveLowSolar}
         isLive={usingLiveWeather}
       />
 
       <EnergyReadingsChart readings={readingsQuery.readings} />
 
-      {/* Honest savings placeholders */}
+      {/* Real savings cards - improved daily aggregation */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Home usage"
-          value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"}
-          hint={snapshot ? "Power your home is using right now" : undefined}
+        <MetricCard 
+          label="Home usage" 
+          value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"} 
+          hint={snapshot ? "Power your home is using right now" : undefined} 
         />
         <div className="flex flex-col sm:col-span-2 xl:col-span-2">
           <div className="grid gap-4 sm:grid-cols-2">
-            <MetricCard
-              label="Yesterday's savings"
-              value="Coming soon"
-              hint="Will be calculated from your live solar + battery data + Ergon tariffs"
+            <MetricCard 
+              label="Yesterday's savings" 
+              value={savings.yesterdaySavings > 0 ? `$${savings.yesterdaySavings}` : "$0.00"} 
+              hint={savings.dataNote || "Calculated using Ergon 12D TOU + 6c FIT"} 
             />
-            <MetricCard
-              label="Savings so far (pilot)"
-              value="Coming soon"
-              hint="Real calculations will appear here once we have enough of your data"
+            <MetricCard 
+              label="Savings so far (pilot)" 
+              value={savings.pilotProjectedTotal > 0 ? `$${savings.pilotProjectedTotal}` : "$0.00"} 
+              hint={`${savings.daysOfData} day${savings.daysOfData === 1 ? '' : 's'} of data • $${savings.dailyAverage}/day average`} 
             />
           </div>
           <SavingsTrendsPlaceholder />
         </div>
-        <MetricCard
-          label="Last updated"
-          value={snapshot ? formatTimestamp(snapshot.last_updated) : "—"}
-          hint={snapshot ? "When we last received data from your system" : undefined}
+        <MetricCard 
+          label="Last updated" 
+          value={snapshot ? formatTimestamp(snapshot.last_updated) : "—"} 
+          hint={snapshot ? "When we last received data from your system" : undefined} 
         />
       </section>
 
@@ -603,6 +604,7 @@ export function Dashboard({
             </p>
           )}
         </div>
+
         <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
           <h2 className="text-lg font-medium text-emerald-400">When today&apos;s decision was made</h2>
           <p className="mt-1 text-sm text-slate-500">Snapshot of your home at the time of the latest agent update.</p>

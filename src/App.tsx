@@ -4,9 +4,8 @@ import ConnectInverter from './components/ConnectInverter';
 import Help from './components/Help';
 import Profile from './components/Profile';
 import ChangePassword from './components/ChangePassword';
-import Requests from './components/Requests';
 
-type View = 'dashboard' | 'connect-inverter' | 'help' | 'profile' | 'change-password' | 'requests';
+type View = 'dashboard' | 'connect-inverter' | 'help' | 'profile' | 'change-password';
 
 export default function App() {
   const [view, setView] = useState<View>('dashboard');
@@ -38,8 +37,8 @@ export default function App() {
 
   const navLinkClass = (active: boolean) =>
     `px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-      active 
-        ? 'bg-emerald-600 text-white' 
+      active
+        ? 'bg-emerald-600 text-white'
         : 'text-slate-300 hover:bg-slate-800 hover:text-white'
     }`;
 
@@ -67,9 +66,6 @@ export default function App() {
             <button onClick={() => setView('connect-inverter')} className={navLinkClass(view === 'connect-inverter')}>
               Connect Inverter
             </button>
-            <button onClick={() => setView('requests')} className={navLinkClass(view === 'requests')}>
-              Requests
-            </button>
             <button onClick={() => setView('help')} className={navLinkClass(view === 'help')}>
               Help
             </button>
@@ -86,7 +82,6 @@ export default function App() {
             >
               Sign out
             </button>
-
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="md:hidden rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
@@ -103,7 +98,6 @@ export default function App() {
             <div className="flex flex-col gap-1">
               <button onClick={() => navigateTo('dashboard')} className={`w-full text-left px-4 py-2.5 rounded-md text-sm ${view === 'dashboard' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>Dashboard</button>
               <button onClick={() => navigateTo('connect-inverter')} className={`w-full text-left px-4 py-2.5 rounded-md text-sm ${view === 'connect-inverter' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>Connect Inverter</button>
-              <button onClick={() => navigateTo('requests')} className={`w-full text-left px-4 py-2.5 rounded-md text-sm ${view === 'requests' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>Requests</button>
               <button onClick={() => navigateTo('help')} className={`w-full text-left px-4 py-2.5 rounded-md text-sm ${view === 'help' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>Help</button>
               <button onClick={() => navigateTo('profile')} className={`w-full text-left px-4 py-2.5 rounded-md text-sm ${view === 'profile' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>Profile</button>
               <div className="pt-2 mt-2 border-t border-slate-800">
@@ -126,20 +120,13 @@ export default function App() {
             onSwitchHousehold={handleSwitchHousehold}
           />
         )}
-
         {view === 'connect-inverter' && (
           <ConnectInverter
             currentHouseholdId={currentUserId}
             onBack={handleBackToDashboard}
           />
         )}
-
-        {view === 'requests' && (
-          <Requests onBack={() => setView('dashboard')} />
-        )}
-
         {view === 'help' && <Help onBack={() => setView('dashboard')} />}
-        
         {view === 'profile' && (
           <Profile
             onBack={() => setView('dashboard')}
@@ -147,7 +134,6 @@ export default function App() {
             onChangePassword={() => setView('change-password')}
           />
         )}
-        
         {view === 'change-password' && (
           <ChangePassword onPasswordChanged={() => setView('dashboard')} />
         )}

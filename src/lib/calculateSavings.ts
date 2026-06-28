@@ -1,11 +1,9 @@
 /**
  * Real savings calculation for Neighbourhood Power pilot
- * Uses Ergon Tariff 12D (TOU) + current feed-in tariff
+ * Ergon Tariff 12D (TOU) + Feed-in Tariff
  * 
- * Properly calculates energy (kWh) between readings using time deltas.
- * Improved "yesterday" detection + basic data quality filtering.
+ * Clean, reliable version for pilot phase.
  */
-
 export type TariffRate = {
   peak: number;
   shoulder: number;
@@ -28,14 +26,6 @@ export type Reading = {
   battery_power_kw?: number;
 };
 
-export type DailySavings = {
-  date: string;
-  savings: number;
-  importCost: number;
-  exportRevenue: number;
-  readingCount: number;
-};
-
 export type SavingsResult = {
   yesterdaySavings: number;
   pilotProjectedTotal: number;
@@ -50,12 +40,6 @@ export type SavingsResult = {
   };
 };
 
-function getTouPeriod(hour: number): 'peak' | 'shoulder' | 'offpeak' {
-  if (hour >= 16 && hour < 21) return 'peak';
-  if (hour >= 11 && hour < 16) return 'offpeak';
-  return 'shoulder';
-}
-
 function getDateKey(timestamp: string): string {
   const d = new Date(timestamp);
   return d.toISOString().split('T')[0];
@@ -66,14 +50,14 @@ export function calculateSavingsFromReadings(
   tariff: TariffRate = ERGON_TARIFF_12D,
   pilotDays: number = 11
 ): SavingsResult {
-  if (!readings || readings.length < 2) {
+  if (!readings || readings.length < 4) {
     return {
       yesterdaySavings: 0,
       pilotProjectedTotal: 0,
       dailyAverage: 0,
       daysOfData: 0,
-      periodLabel: "Insufficient data",
-      dataNote: "Need at least 2 readings to calculate savings",
+      periodLabel: "Collecting data",
+      dataNote: "Waiting for more readings",
       breakdown: { avoidedImportCost: 0, actualGridCost: 0, exportRevenue: 0 },
     };
   }
@@ -82,7 +66,13 @@ export function calculateSavingsFromReadings(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 
-  const dailyMap = new Map<string, { avoided: number; actual: number; export: number; count: number }>();
+  const dailyMap = new Map<string, {
+    selfConsumedKwh: number;
+    exportedKwh: number;
+    count: number;
+  }>();
+
+  const avgImportRate = (tariff.peak + tariff.shoulder + tariff.offpeak) / 3;
 
   for (let i = 0; i < sorted.length - 1; i++) {
     const current = sorted[i];
@@ -92,80 +82,80 @@ export function calculateSavingsFromReadings(
     const end = new Date(next.timestamp);
     const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
 
-    // Skip large gaps (> 3 hours) and invalid intervals
-    if (hours <= 0 || hours > 3) continue;
+    if (hours <= 0 || hours > 2.5) continue;
 
-    const avgConsumption = (current.consumption_kw + next.consumption_kw) / 2;
+    const avgSolar = ((current.solar_kw ?? 0) + (next.solar_kw ?? 0)) / 2;
     const avgGrid = (current.grid_kw + next.grid_kw) / 2;
 
-    const consumptionKwh = avgConsumption * hours;
-    const gridImportKwh = Math.max(0, avgGrid) * hours;
+    const solarKwh = avgSolar * hours;
     const gridExportKwh = Math.max(0, -avgGrid) * hours;
 
-    const hour = start.getHours();
-    const period = getTouPeriod(hour);
-    const rate = period === 'peak' ? tariff.peak : period === 'offpeak' ? tariff.offpeak : tariff.shoulder;
+    // Self-consumed solar = solar produced minus what was exported
+    const selfConsumedKwh = Math.max(0, solarKwh - gridExportKwh);
 
     const dateKey = getDateKey(current.timestamp);
 
     if (!dailyMap.has(dateKey)) {
-      dailyMap.set(dateKey, { avoided: 0, actual: 0, export: 0, count: 0 });
+      dailyMap.set(dateKey, { selfConsumedKwh: 0, exportedKwh: 0, count: 0 });
     }
+
     const day = dailyMap.get(dateKey)!;
-    day.avoided += consumptionKwh * rate;
-    day.actual += gridImportKwh * rate;
-    day.export += gridExportKwh * tariff.fit;
+    day.selfConsumedKwh += selfConsumedKwh;
+    day.exportedKwh += gridExportKwh;
     day.count += 1;
   }
 
-  // Only include days that have a reasonable number of intervals (at least ~8 readings)
-  const dailySavings: DailySavings[] = Array.from(dailyMap.entries())
-    .map(([date, v]) => ({
-      date,
-      savings: Number((v.avoided - v.actual + v.export).toFixed(2)),
-      importCost: Number(v.actual.toFixed(2)),
-      exportRevenue: Number(v.export.toFixed(2)),
-      readingCount: v.count,
-    }))
-    .filter(d => d.readingCount >= 8);
+  // Build daily results (lenient filter for pilot)
+  const dailyResults = Array.from(dailyMap.entries())
+    .map(([date, v]) => {
+      const avoidedImportValue = v.selfConsumedKwh * avgImportRate;
+      const exportValue = v.exportedKwh * tariff.fit;
+      const savings = avoidedImportValue + exportValue;
 
-  if (dailySavings.length === 0) {
+      return {
+        date,
+        savings: Number(savings.toFixed(2)),
+        readingCount: v.count,
+      };
+    })
+    .filter(d => d.readingCount >= 4);
+
+  if (dailyResults.length === 0) {
     return {
       yesterdaySavings: 0,
       pilotProjectedTotal: 0,
       dailyAverage: 0,
       daysOfData: 0,
-      periodLabel: "Insufficient complete days",
-      dataNote: "Not enough complete days of data yet",
+      periodLabel: "Collecting data",
+      dataNote: "Building baseline",
       breakdown: { avoidedImportCost: 0, actualGridCost: 0, exportRevenue: 0 },
     };
   }
 
-  const daysOfData = dailySavings.length;
-  const totalSavings = dailySavings.reduce((sum, d) => sum + d.savings, 0);
+  const daysOfData = dailyResults.length;
+  const totalSavings = dailyResults.reduce((sum, d) => sum + d.savings, 0);
   const dailyAverage = Number((totalSavings / daysOfData).toFixed(2));
 
-  // "Yesterday" = most recent day with sufficient data
-  const sortedDays = [...dailySavings].sort((a, b) => b.date.localeCompare(a.date));
-  const yesterdaySavings = sortedDays[0].savings;
+  const sortedDays = [...dailyResults].sort((a, b) => b.date.localeCompare(a.date));
+  const yesterdaySavings = Math.max(0, sortedDays[0].savings);
 
   const pilotProjectedTotal = Number((dailyAverage * pilotDays).toFixed(2));
 
   let dataNote = "";
   if (daysOfData === 1) {
-    dataNote = "Based on 1 complete day of data";
+    dataNote = "Based on 1 day of data";
   } else if (daysOfData < 7) {
-    dataNote = `Based on ${daysOfData} complete days of data`;
+    dataNote = `Based on ${daysOfData} days of data`;
   } else {
     dataNote = `Based on ${daysOfData} days of pilot data`;
   }
 
   return {
-    yesterdaySavings,
+    yesterdaySavings: Number(yesterdaySavings.toFixed(2)),
     pilotProjectedTotal,
     dailyAverage,
     daysOfData,
-    periodLabel: daysOfData === 1 ? "Last complete day" : "Daily average × pilot days",
+    periodLabel: daysOfData === 1 ? "Last day" : "Daily average × pilot days",
     dataNote,
     breakdown: {
       avoidedImportCost: Number(totalSavings.toFixed(2)),
