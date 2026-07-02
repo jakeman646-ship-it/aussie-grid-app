@@ -1,4 +1,9 @@
-﻿import { useState, useEffect } from "react";
+/**
+ * Aussie Grid — Hooks
+ * File: src/hooks/useHouseholdSnapshot.ts
+ * Version: v0.1.2.7
+ */
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   calculateSavingsFromReadings,
@@ -40,14 +45,14 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
     try {
       const { data: readingsData, error: readingsError } = await supabase
         .from("household_readings")
-        .select("timestamp, consumption_kw, grid_kw, solar_kw, battery_power_kw")
+        .select("timestamp, consumption_kw, grid_kw, solar_kw, battery_power_kw, battery_soc")
         .eq("household_id", householdId)
         .gte("timestamp", new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString())
         .order("timestamp", { ascending: true });
 
       if (readingsError) throw readingsError;
 
-      const readings: Reading[] = (readingsData || []).map((r: any) => ({
+      const readings: Reading[] = (readingsData || []).map((r) => ({
         timestamp: r.timestamp,
         consumption_kw: Number(r.consumption_kw ?? 0),
         grid_kw: Number(r.grid_kw ?? 0),
@@ -56,22 +61,25 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
       }));
 
       const savings = calculateSavingsFromReadings(readings);
+      const latestRow = readingsData && readingsData.length > 0
+        ? readingsData[readingsData.length - 1]
+        : null;
       const latest = readings.length > 0 ? readings[readings.length - 1] : null;
 
       const snapshot: HouseholdSnapshot = {
         household_id: householdId,
         mode: "self_consume",
-        reason: readings.length > 0 
-          ? "Real data • Calculated from your actual solar, grid & consumption" 
+        reason: readings.length > 0
+          ? "Real data • Calculated from your actual solar, grid & consumption"
           : "Waiting for first telemetry readings",
-        battery_soc: 87,
+        battery_soc: latestRow?.battery_soc != null ? Number(latestRow.battery_soc) : 0,
         solar_kw: latest?.solar_kw ?? 0,
         grid_kw: latest?.grid_kw ?? 0,
         consumption_kw: latest?.consumption_kw ?? 0,
         yesterday_savings_aud: savings.yesterdaySavings || null,
         cumulative_savings_aud: savings.pilotProjectedTotal || null,
-        last_updated: new Date().toISOString(),
-        data_source: readings.length > 0 ? "live" : "no_data",
+        last_updated: latestRow?.timestamp ?? new Date().toISOString(),
+        data_source: readings.length > 0 ? "supabase" : "no_data",
         days_of_data: savings.daysOfData || 0,
         data_quality_note: savings.dataNote || "Based on available data",
       };

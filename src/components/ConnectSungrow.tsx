@@ -1,4 +1,4 @@
-﻿import { useState, type FormEvent, useEffect } from "react";
+﻿import { useState, type FormEvent } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { usePilotHousehold } from "@/hooks";
 
@@ -48,7 +48,6 @@ export function ConnectSungrow({
 }: ConnectSungrowProps) {
   const householdQuery = usePilotHousehold(userId);
   const household = householdQuery.data;
-  const householdId = household?.household_id ?? userId;
 
   const [formData, setFormData] = useState({
     householdLabel: "",

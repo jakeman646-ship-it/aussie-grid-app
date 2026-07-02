@@ -1,0 +1,1 @@
+export type Mode = "save" | "self_consume" | "sell" | "storm";

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Real savings calculation for Neighbourhood Power pilot
  * Ergon Tariff 12D (TOU) + Feed-in Tariff
  * 
@@ -155,7 +155,7 @@ export function calculateSavingsFromReadings(
     pilotProjectedTotal,
     dailyAverage,
     daysOfData,
-    periodLabel: daysOfData === 1 ? "Last day" : "Daily average × pilot days",
+    periodLabel: daysOfData === 1 ? "Last day" : "Daily average ├ù pilot days",
     dataNote,
     breakdown: {
       avoidedImportCost: Number(totalSavings.toFixed(2)),

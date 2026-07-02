@@ -1,27 +1,16 @@
-﻿import { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
-
-export interface LatestDecision {
-  mode: string;
-  reason: string;
-  reasoning?: {
-    proposal?: { mode: string };
-    final?: { mode: string };
-    weather?: { tomorrow_irradiance_kwh_m2?: number; low_solar_forecast?: boolean };
-  };
-  harmony_influenced?: boolean;
-  tomorrow_irradiance_kwh_m2?: number;
-}
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import type { AgentDecision } from "@/types/agentDecision";
 
 interface UseLatestDecisionResult {
-  data: LatestDecision | null;
+  data: AgentDecision | null;
   loading: boolean;
   error: Error | null;
   refetch: () => void;
 }
 
 export function useLatestDecision(householdId: string): UseLatestDecisionResult {
-  const [data, setData] = useState<LatestDecision | null>(null);
+  const [data, setData] = useState<AgentDecision | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -36,24 +25,36 @@ export function useLatestDecision(householdId: string): UseLatestDecisionResult 
         .eq("household_id", householdId)
         .order("timestamp", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (queryError) throw queryError;
 
       if (row) {
-        const mapped: LatestDecision = {
-          mode: row.final_mode || row.proposed_mode,
+        const mapped: AgentDecision = {
+          mode: row.final_mode || row.proposed_mode || row.mode || "self_consume",
           reason: row.reason || "AI decision applied",
+          confidence: row.confidence != null ? Number(row.confidence) : undefined,
+          verification_passed: row.verification_passed ?? undefined,
+          severity: row.severity ?? undefined,
+          harmony_influenced: row.harmony_influenced ?? false,
+          harmony_recommendation: row.harmony_recommendation ?? undefined,
+          tomorrow_irradiance_kwh_m2: row.tomorrow_irradiance_kwh_m2 != null
+            ? Number(row.tomorrow_irradiance_kwh_m2)
+            : undefined,
           reasoning: {
             proposal: { mode: row.proposed_mode },
             final: { mode: row.final_mode },
             weather: {
-              tomorrow_irradiance_kwh_m2: 5.2,
-              low_solar_forecast: false,
+              tomorrow_irradiance_kwh_m2: row.tomorrow_irradiance_kwh_m2 != null
+                ? Number(row.tomorrow_irradiance_kwh_m2)
+                : undefined,
+              low_solar_forecast: row.low_solar_forecast ?? undefined,
+            },
+            context: {
+              battery_soc: row.battery_soc != null ? Number(row.battery_soc) : undefined,
+              solar_power_w: row.solar_power_w != null ? Number(row.solar_power_w) : undefined,
             },
           },
-          harmony_influenced: false,
-          tomorrow_irradiance_kwh_m2: 5.2,
         };
         setData(mapped);
       } else {

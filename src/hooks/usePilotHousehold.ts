@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 export interface PilotHousehold {
   household_id: string;
   user_id?: string;
+  email?: string;
   status: string;
   inverter_make: string | null;
   battery_capacity_kwh: number | null;
