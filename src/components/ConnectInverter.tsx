@@ -1,9 +1,10 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.2.7
+ * Version: v0.1.2.8
  */
 import { useState, useEffect, type FormEvent } from "react";
+import { AppVersionBadge } from "@/components/common/AppVersionBadge";
 import { supabase } from "@/lib/supabase";
 
 export interface ConnectInverterProps {
@@ -138,6 +139,7 @@ export function ConnectInverter({
           account_email: formData.accountEmail.trim().toLowerCase(),
           inverter_serial: formData.inverterSerial.trim() || null,
           notes: formData.notes.trim() || null,
+          inverter_make: "Sungrow",
           status: "pending_review",
           requested_at: new Date().toISOString(),
         });
@@ -170,6 +172,16 @@ export function ConnectInverter({
     setIsSubmitted(false);
     setError(null);
   };
+
+  if (checkingStatus) {
+    return (
+      <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
+        <div className="mx-auto max-w-3xl pt-12 text-center">
+          <p className="text-sm text-slate-400">Checking your connection status…</p>
+        </div>
+      </div>
+    );
+  }
 
   if (connectionStatus.status === "pending" && !isSubmitted) {
     return (
@@ -390,8 +402,11 @@ export function ConnectInverter({
           </div>
         )}
 
-        <div className="mt-8 text-center text-xs text-slate-500">
-          Aussie Grid Mackay Pilot — Pre-pilot learning phase • Read-only access only • Your system stays under your full control
+        <div className="mt-8 flex flex-col items-center gap-3 text-center text-xs text-slate-500">
+          <AppVersionBadge />
+          <p>
+            Aussie Grid Mackay Pilot — Pre-pilot learning phase • Read-only access only • Your system stays under your full control
+          </p>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 ﻿/**
  * Aussie Grid ΓÇö Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.7
+ * Version: v0.1.2.8
  */
 import { EnergyReadingsChart } from "@/components/EnergyReadingsChart";
 import {
@@ -630,8 +630,8 @@ export function Dashboard({
               label="Savings so far (pilot)"
               value={cumulativeSavings}
               hint={snapshot?.days_of_data
-                ? `${snapshot.days_of_data} day${snapshot.days_of_data === 1 ? "" : "s"} of data ΓÇó projected pilot total`
-                : "Projected from your available readings"}
+                ? `${snapshot.days_of_data} day${snapshot.days_of_data === 1 ? "" : "s"} of data • cumulative Ergon 12D savings`
+                : "Total savings from your available readings"}
             />
           </div>
           <SavingsTrendsPlaceholder />

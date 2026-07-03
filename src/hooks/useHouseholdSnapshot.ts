@@ -1,12 +1,13 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.7
+ * Version: v0.1.2.8
  */
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   calculateSavingsFromReadings,
+  getYesterdayBrisbaneDate,
   type Reading,
 } from "@/lib/calculateSavings";
 
@@ -43,16 +44,27 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
     setError(null);
 
     try {
-      const { data: readingsData, error: readingsError } = await supabase
-        .from("household_readings")
-        .select("timestamp, consumption_kw, grid_kw, solar_kw, battery_power_kw, battery_soc")
-        .eq("household_id", householdId)
-        .gte("timestamp", new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString())
-        .order("timestamp", { ascending: true });
+      const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
-      if (readingsError) throw readingsError;
+      const [readingsResult, savingsLogResult] = await Promise.all([
+        supabase
+          .from("household_readings")
+          .select("timestamp, consumption_kw, grid_kw, solar_kw, battery_power_kw, battery_soc")
+          .eq("household_id", householdId)
+          .gte("timestamp", since)
+          .order("timestamp", { ascending: true }),
+        supabase
+          .from("daily_savings")
+          .select("savings_date, savings_aud")
+          .eq("household_id", householdId)
+          .gte("savings_date", since.split("T")[0])
+          .order("savings_date", { ascending: false }),
+      ]);
 
-      const readings: Reading[] = (readingsData || []).map((r) => ({
+      if (readingsResult.error) throw readingsResult.error;
+
+      const readingsData = readingsResult.data ?? [];
+      const readings: Reading[] = readingsData.map((r) => ({
         timestamp: r.timestamp,
         consumption_kw: Number(r.consumption_kw ?? 0),
         grid_kw: Number(r.grid_kw ?? 0),
@@ -60,50 +72,62 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
         battery_power_kw: r.battery_power_kw != null ? Number(r.battery_power_kw) : undefined,
       }));
 
-      const savings = calculateSavingsFromReadings(readings);
-      const latestRow = readingsData && readingsData.length > 0
-        ? readingsData[readingsData.length - 1]
-        : null;
+      const calc = calculateSavingsFromReadings(readings);
+      const savingsRows = savingsLogResult.data ?? [];
+      const yesterdayKey = getYesterdayBrisbaneDate();
+
+      const loggedYesterday = savingsRows.find((r) => r.savings_date === yesterdayKey);
+      const loggedCumulative = savingsRows.reduce(
+        (sum, r) => sum + Number(r.savings_aud ?? 0),
+        0
+      );
+
+      const yesterdaySavings =
+        loggedYesterday?.savings_aud != null
+          ? Number(loggedYesterday.savings_aud)
+          : calc.yesterdaySavings > 0
+            ? calc.yesterdaySavings
+            : null;
+
+      const cumulativeSavings =
+        loggedCumulative > 0
+          ? Number(loggedCumulative.toFixed(2))
+          : calc.cumulativeSavings > 0
+            ? calc.cumulativeSavings
+            : null;
+
+      const latestRow =
+        readingsData.length > 0 ? readingsData[readingsData.length - 1] : null;
       const latest = readings.length > 0 ? readings[readings.length - 1] : null;
+
+      const hasLiveReadings = readings.length >= 2;
+      const savingsSource = loggedYesterday ? "daily_savings log" : "live readings";
 
       const snapshot: HouseholdSnapshot = {
         household_id: householdId,
         mode: "self_consume",
-        reason: readings.length > 0
+        reason: hasLiveReadings
           ? "Real data • Calculated from your actual solar, grid & consumption"
           : "Waiting for first telemetry readings",
         battery_soc: latestRow?.battery_soc != null ? Number(latestRow.battery_soc) : 0,
         solar_kw: latest?.solar_kw ?? 0,
         grid_kw: latest?.grid_kw ?? 0,
         consumption_kw: latest?.consumption_kw ?? 0,
-        yesterday_savings_aud: savings.yesterdaySavings || null,
-        cumulative_savings_aud: savings.pilotProjectedTotal || null,
+        yesterday_savings_aud: yesterdaySavings,
+        cumulative_savings_aud: cumulativeSavings,
         last_updated: latestRow?.timestamp ?? new Date().toISOString(),
-        data_source: readings.length > 0 ? "supabase" : "no_data",
-        days_of_data: savings.daysOfData || 0,
-        data_quality_note: savings.dataNote || "Based on available data",
+        data_source: hasLiveReadings ? "supabase" : "no_data",
+        days_of_data: calc.daysOfData || 0,
+        data_quality_note: hasLiveReadings
+          ? `${calc.dataNote} • Ergon 12D TOU via ${savingsSource}`
+          : "Connect your system to start collecting readings",
       };
 
       setData(snapshot);
     } catch (err) {
       console.error("useHouseholdSnapshot error:", err);
       setError(err instanceof Error ? err : new Error("Failed to load household snapshot"));
-
-      setData({
-        household_id: householdId,
-        mode: "self_consume",
-        reason: "Using demo data (real readings not yet available)",
-        battery_soc: 87,
-        solar_kw: 4.2,
-        grid_kw: -1.8,
-        consumption_kw: 2.4,
-        yesterday_savings_aud: 3.42,
-        cumulative_savings_aud: 47.9,
-        last_updated: new Date().toISOString(),
-        data_source: "simulated",
-        days_of_data: 1,
-        data_quality_note: "Based on 1 complete day of data",
-      });
+      setData(null);
     } finally {
       setLoading(false);
     }

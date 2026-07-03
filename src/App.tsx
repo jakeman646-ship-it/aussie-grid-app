@@ -1,4 +1,9 @@
-﻿import { useState } from 'react';
+﻿/**
+ * Aussie Grid — App shell
+ * File: src/App.tsx
+ * Version: v0.1.2.8
+ */
+import { useState } from 'react';
 import Dashboard from './components/Dashboard';
 import ConnectInverter from './components/ConnectInverter';
 import Help from './components/Help';
@@ -11,6 +16,7 @@ export default function App() {
   const [view, setView] = useState<View>('dashboard');
   const [currentUserId, setCurrentUserId] = useState<string>('sungrow-test-001');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [dashboardKey, setDashboardKey] = useState(0);
 
   const handleSignOut = () => {
     setView('dashboard');
@@ -31,8 +37,13 @@ export default function App() {
     setView('dashboard');
   };
 
+  const handleConnectionComplete = () => {
+    setDashboardKey((k) => k + 1);
+  };
+
   const handleSwitchHousehold = (newUserId: string) => {
     setCurrentUserId(newUserId);
+    setDashboardKey((k) => k + 1);
   };
 
   const navLinkClass = (active: boolean) =>
@@ -112,6 +123,7 @@ export default function App() {
       <main>
         {view === 'dashboard' && (
           <Dashboard
+            key={dashboardKey}
             userId={currentUserId}
             onConnectInverter={handleConnectInverter}
             onOpenProfile={() => setView('profile')}
@@ -124,6 +136,7 @@ export default function App() {
           <ConnectInverter
             currentHouseholdId={currentUserId}
             onBack={handleBackToDashboard}
+            onConnectionComplete={handleConnectionComplete}
           />
         )}
         {view === 'help' && <Help onBack={() => setView('dashboard')} />}

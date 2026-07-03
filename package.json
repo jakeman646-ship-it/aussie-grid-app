@@ -1,6 +1,6 @@
 {
   "name": "aussie-grid-app",
-  "version": "0.0.0",
+  "version": "0.1.2.8",
   "private": true,
   "type": "module",
   "scripts": {
