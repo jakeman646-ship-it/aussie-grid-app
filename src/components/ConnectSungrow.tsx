@@ -1,10 +1,13 @@
-﻿import { useState, type FormEvent } from "react";
-import { createClient } from "@supabase/supabase-js";
+/**
+ * Aussie Grid — ConnectSungrow
+ * File: src/components/ConnectSungrow.tsx
+ * Version: v0.1.2.13
+ */
+import { useState, type FormEvent } from "react";
 import { usePilotHousehold } from "@/hooks";
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Shared client: a second module-scope createClient() here threw at chunk
+// evaluation when env vars were absent, freezing every lazy view load.
+import { supabase } from "@/lib/supabase";
 
 const DEFAULT_USER_ID = "sungrow-test-001";
 
@@ -102,7 +105,7 @@ export function ConnectSungrow({
           notes: formData.notes.trim() || null,
           status: "pending_review",
           requested_at: new Date().toISOString(),
-          inverter_make: "Sungrow",
+          inverter_brand: "Sungrow",
         });
 
       if (insertError) {

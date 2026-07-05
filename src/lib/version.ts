@@ -1,9 +1,9 @@
 /**
  * Aussie Grid — Version
  * File: src/lib/version.ts
- * Version: v0.1.2.8
+ * Version: v0.1.2.13
  */
-export const APP_VERSION = "0.1.2.8";
+export const APP_VERSION = "0.1.2.13";
 export const APP_VERSION_LABEL = "Pilot";
 
 export function formatAppVersion(short = false): string {

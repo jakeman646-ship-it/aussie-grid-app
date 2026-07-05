@@ -1,11 +1,11 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.2.8
+ * Version: v0.1.2.13
  */
 import { useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
-import { supabase } from "@/lib/supabase";
+import { supabase, queryTimeout } from "@/lib/supabase";
 
 export interface ConnectInverterProps {
   onBack?: () => void;
@@ -13,9 +13,12 @@ export interface ConnectInverterProps {
   currentHouseholdId?: string;
 }
 
+type InverterMake = "Sungrow" | "Tesla";
+
 interface FormData {
   householdLabel: string;
   accountEmail: string;
+  accountPassword: string;
   siteId: string;
   inverterSerial: string;
   notes: string;
@@ -26,14 +29,66 @@ interface ConnectionStatus {
   message?: string;
 }
 
+const INVERTER_OPTIONS: { value: InverterMake; label: string }[] = [
+  { value: "Sungrow", label: "Sungrow (iSolarCloud)" },
+  { value: "Tesla", label: "Tesla (Powerwall / Energy)" },
+];
+
+const INVERTER_COPY: Record<
+  InverterMake,
+  {
+    title: string;
+    emailLabel: string;
+    emailHint: string;
+    siteLabel: string;
+    siteHint: string;
+    sitePlaceholder: string;
+    steps: string[];
+    successVerify: string;
+  }
+> = {
+  Sungrow: {
+    title: "Connect your Sungrow system",
+    emailLabel: "Sungrow iSolarCloud account email",
+    emailHint: "The email you use to log into iSolarCloud",
+    siteLabel: "Site ID / Plant ID",
+    siteHint: "Found in iSolarCloud → Plant → Settings → General information",
+    sitePlaceholder: "e.g. 123456789 or PLANT-ABC123",
+    steps: [
+      "Log into your Sungrow iSolarCloud account",
+      "Go to your plant → Settings → General information and copy the Plant ID (Site ID)",
+      "(Optional) Copy your inverter's Serial Number",
+      "Enter the details below. We'll request read-only access on your behalf.",
+    ],
+    successVerify: "We verify your Site ID and request read-only access from Sungrow",
+  },
+  Tesla: {
+    title: "Connect your Tesla system",
+    emailLabel: "Tesla account email",
+    emailHint: "The email you use to log into the Tesla app or Tesla.com",
+    siteLabel: "Energy Site ID",
+    siteHint: "Found in the Tesla app under Energy → your site, or from your installer",
+    sitePlaceholder: "e.g. 1234567890",
+    steps: [
+      "Log into your Tesla account (app or tesla.com)",
+      "Open your energy site and copy the Site ID",
+      "Enter your Tesla account email and password below so we can request read-only access",
+      "We'll review and activate read-only data access on your behalf.",
+    ],
+    successVerify: "We verify your Site ID and request read-only access from Tesla",
+  },
+};
+
 export function ConnectInverter({
   onBack,
   onConnectionComplete,
   currentHouseholdId,
 }: ConnectInverterProps) {
+  const [inverterMake, setInverterMake] = useState<InverterMake>("Sungrow");
   const [formData, setFormData] = useState<FormData>({
     householdLabel: "",
     accountEmail: "",
+    accountPassword: "",
     siteId: "",
     inverterSerial: "",
     notes: "",
@@ -44,6 +99,8 @@ export function ConnectInverter({
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: "none" });
   const [checkingStatus, setCheckingStatus] = useState(true);
 
+  const copy = INVERTER_COPY[inverterMake];
+
   useEffect(() => {
     const checkExistingConnection = async () => {
       if (!currentHouseholdId) {
@@ -52,29 +109,41 @@ export function ConnectInverter({
       }
       setCheckingStatus(true);
       try {
-        const { data: pendingRequest } = await supabase
-          .from("pilot_connection_requests")
-          .select("id, status")
-          .eq("household_id", currentHouseholdId)
-          .eq("status", "pending_review")
-          .maybeSingle();
+        // Run both checks in parallel so a slow query can't double the wait.
+        const [pendingResult, householdResult] = await Promise.all([
+          supabase
+            .from("pilot_connection_requests")
+            .select("id, status")
+            .eq("household_id", currentHouseholdId)
+            .eq("status", "pending_review")
+            .abortSignal(queryTimeout())
+            .maybeSingle(),
+          supabase
+            .from("pilot_households")
+            .select("status, sungrow_connected_at, tesla_connected_at, inverter_make")
+            .eq("household_id", currentHouseholdId)
+            .abortSignal(queryTimeout())
+            .maybeSingle(),
+        ]);
 
-        if (pendingRequest) {
+        if (pendingResult.data) {
           setConnectionStatus({
             status: "pending",
             message: "Your connection request is currently being reviewed by the team.",
           });
-          setCheckingStatus(false);
           return;
         }
 
-        const { data: household } = await supabase
-          .from("pilot_households")
-          .select("status, sungrow_connected_at")
-          .eq("household_id", currentHouseholdId)
-          .maybeSingle();
+        const household = householdResult.data;
+        const isConnected =
+          household &&
+          (household.status === "active" ||
+            household.sungrow_connected_at ||
+            household.tesla_connected_at ||
+            household.inverter_make === "Sungrow" ||
+            household.inverter_make === "Tesla");
 
-        if (household && (household.status === "active" || household.sungrow_connected_at)) {
+        if (isConnected) {
           setConnectionStatus({
             status: "connected",
             message: "This household is already connected and sending live data.",
@@ -85,11 +154,18 @@ export function ConnectInverter({
       } catch (err) {
         console.error("Error checking connection status:", err);
         setConnectionStatus({ status: "none" });
+      } finally {
+        setCheckingStatus(false);
       }
-      setCheckingStatus(false);
     };
     checkExistingConnection();
   }, [currentHouseholdId]);
+
+  const handleInverterChange = (make: InverterMake) => {
+    setInverterMake(make);
+    setFormData((prev) => ({ ...prev, accountPassword: "" }));
+    if (error) setError(null);
+  };
 
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -106,16 +182,28 @@ export function ConnectInverter({
 
   const validateForm = (): boolean => {
     if (!formData.siteId.trim()) {
-      setError("Please enter your Sungrow Site ID (Plant ID).");
+      setError(
+        inverterMake === "Tesla"
+          ? "Please enter your Tesla Energy Site ID."
+          : "Please enter your Sungrow Site ID (Plant ID)."
+      );
       return false;
     }
     if (!formData.accountEmail.trim()) {
-      setError("Please enter the email associated with your Sungrow iSolarCloud account.");
+      setError(
+        inverterMake === "Tesla"
+          ? "Please enter the email associated with your Tesla account."
+          : "Please enter the email associated with your Sungrow iSolarCloud account."
+      );
       return false;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.accountEmail)) {
       setError("Please enter a valid email address.");
+      return false;
+    }
+    if (inverterMake === "Tesla" && !formData.accountPassword.trim()) {
+      setError("Please enter your Tesla account password.");
       return false;
     }
     return true;
@@ -131,18 +219,22 @@ export function ConnectInverter({
     setError(null);
 
     try {
-      const { error: insertError } = await supabase
-        .from("pilot_connection_requests")
-        .insert({
-          household_id: targetHouseholdId,
-          site_id: formData.siteId.trim(),
-          account_email: formData.accountEmail.trim().toLowerCase(),
-          inverter_serial: formData.inverterSerial.trim() || null,
-          notes: formData.notes.trim() || null,
-          inverter_make: "Sungrow",
-          status: "pending_review",
-          requested_at: new Date().toISOString(),
-        });
+      const payload: Record<string, unknown> = {
+        household_id: targetHouseholdId,
+        site_id: formData.siteId.trim(),
+        account_email: formData.accountEmail.trim().toLowerCase(),
+        inverter_serial: formData.inverterSerial.trim() || null,
+        notes: formData.notes.trim() || null,
+        inverter_brand: inverterMake,
+        status: "pending_review",
+        requested_at: new Date().toISOString(),
+      };
+
+      if (inverterMake === "Tesla") {
+        payload.account_password = formData.accountPassword;
+      }
+
+      const { error: insertError } = await supabase.from("pilot_connection_requests").insert(payload);
 
       if (insertError) {
         if (insertError.code === "23505" || insertError.message?.toLowerCase().includes("duplicate")) {
@@ -160,7 +252,8 @@ export function ConnectInverter({
       }
     } catch (err: unknown) {
       console.error("Connection request error:", err);
-      const message = err instanceof Error ? err.message : "Failed to submit request. Please try again or contact support.";
+      const message =
+        err instanceof Error ? err.message : "Failed to submit request. Please try again or contact support.";
       setError(message);
     } finally {
       setIsSubmitting(false);
@@ -168,7 +261,14 @@ export function ConnectInverter({
   };
 
   const resetForm = () => {
-    setFormData({ householdLabel: "", accountEmail: "", siteId: "", inverterSerial: "", notes: "" });
+    setFormData({
+      householdLabel: "",
+      accountEmail: "",
+      accountPassword: "",
+      siteId: "",
+      inverterSerial: "",
+      notes: "",
+    });
     setIsSubmitted(false);
     setError(null);
   };
@@ -178,6 +278,22 @@ export function ConnectInverter({
       <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
         <div className="mx-auto max-w-3xl pt-12 text-center">
           <p className="text-sm text-slate-400">Checking your connection status…</p>
+          <div className="mt-6 flex justify-center gap-3">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-900"
+              >
+                ← Back to Dashboard
+              </button>
+            )}
+            <button
+              onClick={() => setCheckingStatus(false)}
+              className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-900"
+            >
+              Skip and show the form
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -192,7 +308,9 @@ export function ConnectInverter({
           </div>
           <h1 className="text-2xl font-semibold text-amber-400">Request already submitted</h1>
           <p className="mt-3 text-slate-300">{connectionStatus.message}</p>
-          <p className="mt-2 text-sm text-slate-400">We&apos;ll email you as soon as it&apos;s approved and your dashboard goes live.</p>
+          <p className="mt-2 text-sm text-slate-400">
+            We&apos;ll email you as soon as it&apos;s approved and your dashboard goes live.
+          </p>
           {onBack && (
             <button onClick={onBack} className="mt-8 rounded-xl border border-slate-600 px-6 py-2.5 text-sm hover:bg-slate-900">
               ← Back to Dashboard
@@ -214,7 +332,7 @@ export function ConnectInverter({
               </button>
             )}
             <div>
-              <h1 className="text-2xl font-semibold text-emerald-400">Connect your Sungrow system</h1>
+              <h1 className="text-2xl font-semibold text-emerald-400">{copy.title}</h1>
               <p className="text-sm text-slate-400">Mackay Pilot — Pre-pilot phase</p>
             </div>
           </div>
@@ -242,34 +360,27 @@ export function ConnectInverter({
             <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5">
               <h2 className="text-lg font-medium text-emerald-400">Why connect your system?</h2>
               <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                See your live solar production, battery charge level, and grid flow. Your smart agent will learn from your real data to give better daily suggestions.
+                See your live solar production, battery charge level, and grid flow. Your smart agent will learn from
+                your real data to give better daily suggestions.
               </p>
             </div>
 
             <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5">
               <h3 className="text-base font-semibold text-emerald-400">How to connect (takes about 2 minutes)</h3>
               <ol className="mt-3 space-y-3 text-sm text-slate-300">
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">1</span>
-                  <span>Log into your <span className="font-medium">Sungrow iSolarCloud</span> account</span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">2</span>
-                  <span>Go to your plant → <span className="font-medium">Settings → General information</span> and copy the <span className="font-medium">Plant ID</span> (Site ID)</span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">3</span>
-                  <span>(Optional) Copy your inverter&apos;s <span className="font-medium">Serial Number</span></span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">4</span>
-                  <span>Enter the details below. We&apos;ll request read-only access on your behalf.</span>
-                </li>
+                {copy.steps.map((step, i) => (
+                  <li key={step} className="flex gap-3">
+                    <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-400">
+                      {i + 1}
+                    </span>
+                    <span>{step}</span>
+                  </li>
+                ))}
               </ol>
             </div>
 
             <form onSubmit={handleSubmit} className="rounded-xl border border-slate-700 bg-slate-900 p-6">
-              <h3 className="text-lg font-medium text-emerald-400">Enter your Sungrow details</h3>
+              <h3 className="text-lg font-medium text-emerald-400">Enter your {inverterMake} details</h3>
 
               {error && (
                 <div className="mt-4 rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-200">
@@ -278,6 +389,23 @@ export function ConnectInverter({
               )}
 
               <div className="mt-5 space-y-5">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                    Inverter / system brand <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    value={inverterMake}
+                    onChange={(e) => handleInverterChange(e.target.value as InverterMake)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    {INVERTER_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-300">
                     Household name / label <span className="text-slate-500">(optional)</span>
@@ -293,7 +421,7 @@ export function ConnectInverter({
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                    Sungrow iSolarCloud account email <span className="text-red-400">*</span>
+                    {copy.emailLabel} <span className="text-red-400">*</span>
                   </label>
                   <input
                     type="email"
@@ -303,37 +431,59 @@ export function ConnectInverter({
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                     required
                   />
-                  <p className="mt-1 text-xs text-slate-500">The email you use to log into iSolarCloud</p>
+                  <p className="mt-1 text-xs text-slate-500">{copy.emailHint}</p>
                 </div>
+
+                {inverterMake === "Tesla" && (
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                      Tesla account password <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={formData.accountPassword}
+                      onChange={(e) => handleInputChange("accountPassword", e.target.value)}
+                      placeholder="Your Tesla account password"
+                      autoComplete="current-password"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                      required
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Used only to set up read-only access. Stored securely and never shared.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                    Site ID / Plant ID <span className="text-red-400">*</span>
+                    {copy.siteLabel} <span className="text-red-400">*</span>
                   </label>
                   <input
                     type="text"
                     value={formData.siteId}
                     onChange={(e) => handleInputChange("siteId", e.target.value)}
-                    placeholder="e.g. 123456789 or PLANT-ABC123"
+                    placeholder={copy.sitePlaceholder}
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                     required
                   />
-                  <p className="mt-1 text-xs text-slate-500">Found in iSolarCloud → Plant → Settings → General information</p>
+                  <p className="mt-1 text-xs text-slate-500">{copy.siteHint}</p>
                 </div>
 
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                    Inverter Serial Number <span className="text-slate-500">(optional but recommended)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.inverterSerial}
-                    onChange={(e) => handleInputChange("inverterSerial", e.target.value)}
-                    placeholder="e.g. SG1234567890"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">On the inverter label or in iSolarCloud under Devices</p>
-                </div>
+                {inverterMake === "Sungrow" && (
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                      Inverter Serial Number <span className="text-slate-500">(optional but recommended)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.inverterSerial}
+                      onChange={(e) => handleInputChange("inverterSerial", e.target.value)}
+                      placeholder="e.g. SG1234567890"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">On the inverter label or in iSolarCloud under Devices</p>
+                  </div>
+                )}
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-300">Notes (optional)</label>
@@ -367,13 +517,13 @@ export function ConnectInverter({
             </div>
             <h2 className="text-2xl font-semibold text-emerald-400">Request received — thank you!</h2>
             <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-300">
-              We&apos;ve received your connection request and will now review it.
+              We&apos;ve received your {inverterMake} connection request and will now review it.
             </p>
 
             <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5 text-left text-sm">
-              <p className="font-medium text-emerald-300 mb-2">What happens next:</p>
+              <p className="mb-2 font-medium text-emerald-300">What happens next:</p>
               <ul className="space-y-1.5 text-slate-300">
-                <li>• We verify your Site ID and request read-only access from Sungrow</li>
+                <li>• {copy.successVerify}</li>
                 <li>• You&apos;ll receive a confirmation email once approved (usually within 24–48 hours)</li>
                 <li>• Your dashboard will then show live solar, battery, and grid data</li>
               </ul>
@@ -391,7 +541,10 @@ export function ConnectInverter({
                   Return to Dashboard
                 </button>
               )}
-              <button onClick={resetForm} className="rounded-xl border border-emerald-600/60 px-6 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-950/40">
+              <button
+                onClick={resetForm}
+                className="rounded-xl border border-emerald-600/60 px-6 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-950/40"
+              >
                 Submit another connection
               </button>
             </div>
@@ -405,7 +558,8 @@ export function ConnectInverter({
         <div className="mt-8 flex flex-col items-center gap-3 text-center text-xs text-slate-500">
           <AppVersionBadge />
           <p>
-            Aussie Grid Mackay Pilot — Pre-pilot learning phase • Read-only access only • Your system stays under your full control
+            Aussie Grid Mackay Pilot — Pre-pilot learning phase • Read-only access only • Your system stays under your
+            full control
           </p>
         </div>
       </div>

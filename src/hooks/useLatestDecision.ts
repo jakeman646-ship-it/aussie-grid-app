@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, queryTimeout } from "@/lib/supabase";
 import type { AgentDecision } from "@/types/agentDecision";
 
 interface UseLatestDecisionResult {
@@ -25,6 +25,7 @@ export function useLatestDecision(householdId: string): UseLatestDecisionResult 
         .eq("household_id", householdId)
         .order("timestamp", { ascending: false })
         .limit(1)
+        .abortSignal(queryTimeout())
         .maybeSingle();
 
       if (queryError) throw queryError;

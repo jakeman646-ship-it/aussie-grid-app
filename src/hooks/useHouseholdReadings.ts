@@ -1,5 +1,10 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+/**
+ * Aussie Grid — Hooks
+ * File: src/hooks/useHouseholdReadings.ts
+ * Version: v0.1.2.13
+ */
+import { useCallback, useEffect, useState } from "react";
+import { supabase, queryTimeout } from "@/lib/supabase";
 
 export interface HouseholdReading {
   timestamp: string;
@@ -14,36 +19,37 @@ export function useHouseholdReadings(householdId: string | null, limit = 80) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchReadings = useCallback(async () => {
     if (!householdId) {
       setReadings([]);
       setLoading(false);
       return;
     }
 
-    const fetchReadings = async () => {
-      setLoading(true);
-      setError(null);
+    setLoading(true);
+    setError(null);
 
-      const { data, error } = await supabase
-        .from("household_readings")
-        .select("timestamp, solar_kw, consumption_kw, grid_kw, battery_power_kw")
-        .eq("household_id", householdId)
-        .order("timestamp", { ascending: false })
-        .limit(limit);
+    const { data, error } = await supabase
+      .from("household_readings")
+      .select("timestamp, solar_kw, consumption_kw, grid_kw, battery_power_kw")
+      .eq("household_id", householdId)
+      .order("timestamp", { ascending: false })
+      .abortSignal(queryTimeout())
+      .limit(limit);
 
-      if (error) {
-        console.error("useHouseholdReadings error:", error);
-        setError(error.message);
-        setReadings([]);
-      } else {
-        setReadings((data || []).reverse());
-      }
-      setLoading(false);
-    };
-
-    fetchReadings();
+    if (error) {
+      console.error("useHouseholdReadings error:", error);
+      setError(error.message);
+      setReadings([]);
+    } else {
+      setReadings((data || []).reverse());
+    }
+    setLoading(false);
   }, [householdId, limit]);
 
-  return { readings, loading, error };
+  useEffect(() => {
+    fetchReadings();
+  }, [fetchReadings]);
+
+  return { readings, loading, error, refetch: fetchReadings };
 }

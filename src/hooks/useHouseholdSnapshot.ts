@@ -1,10 +1,10 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.8
+ * Version: v0.1.2.13
  */
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, queryTimeout } from "@/lib/supabase";
 import {
   calculateSavingsFromReadings,
   getYesterdayBrisbaneDate,
@@ -52,13 +52,15 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
           .select("timestamp, consumption_kw, grid_kw, solar_kw, battery_power_kw, battery_soc")
           .eq("household_id", householdId)
           .gte("timestamp", since)
-          .order("timestamp", { ascending: true }),
+          .order("timestamp", { ascending: true })
+          .abortSignal(queryTimeout()),
         supabase
           .from("daily_savings")
           .select("savings_date, savings_aud")
           .eq("household_id", householdId)
           .gte("savings_date", since.split("T")[0])
-          .order("savings_date", { ascending: false }),
+          .order("savings_date", { ascending: false })
+          .abortSignal(queryTimeout()),
       ]);
 
       if (readingsResult.error) throw readingsResult.error;

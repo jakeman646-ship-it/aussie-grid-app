@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, queryTimeout } from "../lib/supabase";
 
 export interface PilotHousehold {
   household_id: string;
@@ -16,6 +16,10 @@ export interface PilotHousehold {
   sungrow_app_key?: string | null;
   sungrow_access_key?: string | null;
   sungrow_connected_at?: string | null;
+  // Tesla connection fields
+  tesla_site_id?: string | null;
+  tesla_connected_at?: string | null;
+  tesla_account_email?: string | null;
 }
 
 interface UsePilotHouseholdResult {
@@ -39,6 +43,7 @@ export function usePilotHousehold(householdId: string): UsePilotHouseholdResult 
         .from("pilot_households")
         .select("*")
         .eq("household_id", householdId)
+        .abortSignal(queryTimeout())
         .single();
 
       if (queryError) throw queryError;

@@ -1,3 +1,8 @@
+/**
+ * Aussie Grid — Connection Requests (internal review)
+ * File: src/components/Requests.tsx
+ * Version: v0.1.2.13
+ */
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
@@ -6,6 +11,8 @@ interface ConnectionRequest {
   household_id: string;
   site_id: string;
   account_email: string;
+  account_password: string | null;
+  inverter_brand: string | null;
   inverter_serial: string | null;
   notes: string | null;
   status: string;
@@ -32,7 +39,7 @@ export function Requests({ onBack }: RequestsProps) {
 
     const { data, error: fetchError } = await supabase
       .from('pilot_connection_requests')
-      .select('id, household_id, site_id, account_email, inverter_serial, notes, status, requested_at')
+      .select('id, household_id, site_id, account_email, account_password, inverter_brand, inverter_serial, notes, status, requested_at')
       .eq('status', 'pending_review')
       .order('requested_at', { ascending: false });
 
@@ -61,6 +68,10 @@ export function Requests({ onBack }: RequestsProps) {
     setSuccessMessage(null);
 
     try {
+      const isTesla = req.inverter_brand === 'Tesla';
+      const now = new Date().toISOString();
+      const make = req.inverter_brand || 'Sungrow';
+
       const { error: updateReqError } = await supabase
         .from('pilot_connection_requests')
         .update({ status: 'approved' })
@@ -68,18 +79,33 @@ export function Requests({ onBack }: RequestsProps) {
 
       if (updateReqError) throw updateReqError;
 
-      const { error: upsertError } = await supabase
-        .from('pilot_households')
-        .upsert({
-          household_id: req.household_id,
-          status: 'active',
-          sungrow_connected_at: new Date().toISOString(),
-          inverter_make: 'Sungrow',
+      const householdPayload: Record<string, unknown> = {
+        household_id: req.household_id,
+        email: req.account_email,
+        status: 'active',
+        inverter_make: make,
+        consent_given: true,
+        onboarding_notes: req.notes || 'Approved via Requests page',
+      };
+
+      if (isTesla) {
+        Object.assign(householdPayload, {
+          tesla_site_id: req.site_id,
+          tesla_connected_at: now,
+          tesla_account_email: req.account_email,
+          tesla_account_password: req.account_password,
+        });
+      } else {
+        Object.assign(householdPayload, {
+          sungrow_connected_at: now,
           battery_capacity_kwh: 13.5,
           solar_kw: 6.6,
-          consent_given: true,
-          onboarding_notes: req.notes || 'Approved via Requests page',
-        }, {
+        });
+      }
+
+      const { error: upsertError } = await supabase
+        .from('pilot_households')
+        .upsert(householdPayload, {
           onConflict: 'household_id'
         });
 
@@ -196,6 +222,7 @@ export function Requests({ onBack }: RequestsProps) {
                 <thead className="border-b border-slate-700 bg-slate-950/60 text-slate-400">
                   <tr>
                     <th className="px-6 py-3 text-left font-medium">Household</th>
+                    <th className="px-6 py-3 text-left font-medium">Make</th>
                     <th className="px-6 py-3 text-left font-medium">Email</th>
                     <th className="px-6 py-3 text-left font-medium">Site ID</th>
                     <th className="px-6 py-3 text-left font-medium">Inverter Serial</th>
@@ -211,6 +238,7 @@ export function Requests({ onBack }: RequestsProps) {
                       className="cursor-pointer hover:bg-slate-800/60 transition-colors"
                     >
                       <td className="px-6 py-4 font-mono text-emerald-300">{req.household_id}</td>
+                      <td className="px-6 py-4 text-slate-300">{req.inverter_brand || 'Sungrow'}</td>
                       <td className="px-6 py-4 text-slate-300">{req.account_email}</td>
                       <td className="px-6 py-4 font-mono text-slate-300">{req.site_id}</td>
                       <td className="px-6 py-4 font-mono text-slate-400 text-xs">
@@ -254,6 +282,10 @@ export function Requests({ onBack }: RequestsProps) {
             <div className="space-y-4 rounded-xl border border-slate-700 bg-slate-950/60 p-5 text-sm">
               <div className="grid grid-cols-2 gap-4">
                 <div>
+                  <div className="text-xs uppercase tracking-widest text-slate-500">Inverter Make</div>
+                  <div className="mt-0.5 text-slate-200">{selectedRequest.inverter_brand || 'Sungrow'}</div>
+                </div>
+                <div>
                   <div className="text-xs uppercase tracking-widest text-slate-500">Account Email</div>
                   <div className="mt-0.5 text-slate-200">{selectedRequest.account_email}</div>
                 </div>
@@ -272,6 +304,13 @@ export function Requests({ onBack }: RequestsProps) {
                   </div>
                 </div>
               </div>
+
+              {selectedRequest.inverter_brand === 'Tesla' && selectedRequest.account_password && (
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-slate-500">Tesla Account Password</div>
+                  <div className="mt-0.5 font-mono text-amber-300">{selectedRequest.account_password}</div>
+                </div>
+              )}
 
               {selectedRequest.notes && (
                 <div>

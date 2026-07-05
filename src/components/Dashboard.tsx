@@ -1,9 +1,32 @@
 ﻿/**
- * Aussie Grid ΓÇö Dashboard
+ * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.8
+ * Version: v0.1.2.13
  */
-import { EnergyReadingsChart } from "@/components/EnergyReadingsChart";
+import { Component, Suspense, type ReactNode } from "react";
+import { lazyWithReload } from "@/lib/lazyRetry";
+
+const EnergyReadingsChart = lazyWithReload(() => import("@/components/EnergyReadingsChart"));
+
+/** Keeps a failed chart chunk from taking down the whole dashboard. */
+class ChartErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-5 text-sm text-slate-400">
+          The energy chart couldn&apos;t load. Refresh the page to try again.
+        </section>
+      );
+    }
+    return this.props.children;
+  }
+}
 import {
   useHouseholdSnapshot,
   useLatestDecision,
@@ -27,8 +50,8 @@ import { formatAppVersion } from "@/lib/version";
 import type { AgentDecision } from "@/types/agentDecision";
 import type { Mode } from "@/types/mode";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect, useRef } from "react";
+import { supabase, queryTimeout, isSupabaseConfigured } from "@/lib/supabase";
 
 const DEFAULT_USER_ID = getCurrentHouseholdId();
 
@@ -44,7 +67,7 @@ function normalizeModeKey(value: string): string {
 }
 
 function formatSavingsAud(value: number | null | undefined): string {
-  if (value == null) return "ΓÇö";
+  if (value == null) return "—";
   return `$${value.toFixed(2)}`;
 }
 
@@ -65,16 +88,16 @@ function solarDayLabel(outlook: SolarDayOutlook): string {
 
 function tomorrowInterpretation(outlook: SolarDayOutlook): string {
   return {
-    lower: "Lower solar expected tomorrow ΓÇö the agent will likely preserve more battery overnight.",
-    average: "A typical solar day is expected tomorrow ΓÇö the agent will balance solar use and battery as usual.",
-    good: "Good solar expected tomorrow ΓÇö the agent should be able to run more on solar and charge the battery.",
+    lower: "Lower solar expected tomorrow — the agent will likely preserve more battery overnight.",
+    average: "A typical solar day is expected tomorrow — the agent will balance solar use and battery as usual.",
+    good: "Good solar expected tomorrow — the agent should be able to run more on solar and charge the battery.",
   }[outlook];
 }
 
 function formatSunshineContext(irradiance: number, outlook: SolarDayOutlook): string {
-  if (outlook === "good") return `Plenty of sunshine is forecast for Mackay tomorrow (around ${irradiance.toFixed(1)} kWh/m┬▓).`;
-  if (outlook === "average") return `Moderate sunshine is forecast for tomorrow (around ${irradiance.toFixed(1)} kWh/m┬▓).`;
-  return `Less sunshine than usual is forecast for tomorrow (around ${irradiance.toFixed(1)} kWh/m┬▓).`;
+  if (outlook === "good") return `Plenty of sunshine is forecast for Mackay tomorrow (around ${irradiance.toFixed(1)} kWh/m²).`;
+  if (outlook === "average") return `Moderate sunshine is forecast for tomorrow (around ${irradiance.toFixed(1)} kWh/m²).`;
+  return `Less sunshine than usual is forecast for tomorrow (around ${irradiance.toFixed(1)} kWh/m²).`;
 }
 
 function TomorrowOutlookSection({
@@ -95,11 +118,11 @@ function TomorrowOutlookSection({
       <div className="flex items-center justify-between">
         <h2 className="text-base font-medium text-emerald-400">Tomorrow&apos;s Outlook</h2>
         {isLive && (
-          <span className="text-[10px] uppercase tracking-wide text-emerald-400/70 bg-emerald-950/60 px-2 py-0.5 rounded">Live ΓÇó Open-Meteo</span>
+          <span className="text-[10px] uppercase tracking-wide text-emerald-400/70 bg-emerald-950/60 px-2 py-0.5 rounded">Live • Open-Meteo</span>
         )}
       </div>
       {weatherLoading ? (
-        <p className="mt-2 text-sm text-slate-400">Loading tomorrow&apos;s forecastΓÇª</p>
+        <p className="mt-2 text-sm text-slate-400">Loading tomorrow&apos;s forecast…</p>
       ) : !outlook ? (
         <p className="mt-2 text-sm text-slate-400">Tomorrow&apos;s forecast not available yet.</p>
       ) : (
@@ -119,6 +142,8 @@ function TomorrowOutlookSection({
 
 export interface DashboardProps {
   userId?: string;
+  /** Bump to refetch all dashboard data in place (no remount). */
+  refreshKey?: number;
   onConnectInverter?: () => void;
   onOpenProfile?: () => void;
   onOpenHelp?: () => void;
@@ -159,7 +184,7 @@ function ReadOnlyPilotBanner() {
       <p className="text-sm font-medium text-emerald-300">Pre-pilot learning phase</p>
       <p className="mt-1 text-sm leading-relaxed text-emerald-100/90">
         We&apos;re currently in an early data collection stage with a small group of Mackay households.
-        During this phase, we&apos;re only reading data from your solar and battery system ΓÇö we cannot control your inverter or change any settings yet.
+        During this phase, we&apos;re only reading data from your solar and battery system — we cannot control your inverter or change any settings yet.
       </p>
       <p className="mt-2 text-sm leading-relaxed text-emerald-100/90">
         Once we&apos;ve seen enough data from participating homes, we&apos;ll move into the active pilot phase where the agent can start setting operating modes on your system.
@@ -173,7 +198,7 @@ function PendingRequestBanner() {
     <div className="rounded-xl border border-amber-600/40 bg-amber-950/20 px-6 py-5">
       <div className="flex flex-col gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-amber-300">Connection request received ΓÇö thank you!</h3>
+          <h3 className="text-lg font-semibold text-amber-300">Connection request received — thank you!</h3>
           <p className="mt-1 text-sm text-amber-100/90">
             We&apos;ve got your details and our team is now reviewing your request.
           </p>
@@ -181,9 +206,9 @@ function PendingRequestBanner() {
         <div className="rounded-lg border border-amber-700/40 bg-amber-950/30 px-4 py-3 text-sm">
           <p className="font-medium text-amber-200 mb-2">What happens next:</p>
           <ul className="space-y-1.5 text-amber-100/90">
-            <li>ΓÇó We verify your Site ID and request read-only access from Sungrow</li>
-            <li>ΓÇó You&apos;ll receive a confirmation email once approved (usually within 1ΓÇô2 business days)</li>
-            <li>ΓÇó Once live, this dashboard will show your real solar, battery, and grid data</li>
+            <li>• We verify your Site ID and request read-only access from Sungrow</li>
+            <li>• You&apos;ll receive a confirmation email once approved (usually within 1–2 business days)</li>
+            <li>• Once live, this dashboard will show your real solar, battery, and grid data</li>
           </ul>
         </div>
         <p className="text-xs text-amber-300/80">
@@ -204,11 +229,36 @@ function WelcomePilotOverview() {
       </p>
       <p className="mt-2 text-sm leading-relaxed text-slate-300">
         Your home&apos;s smart agent is learning from your solar and battery data right now.
-        During this pre-pilot phase, everything is read-only ΓÇö the agent suggests operating modes but cannot control your inverter yet.
+        During this pre-pilot phase, everything is read-only — the agent suggests operating modes but cannot control your inverter yet.
         Once we&apos;ve seen enough data from participating homes, we&apos;ll move into the active pilot phase where the agent can start setting modes on your system.
       </p>
     </section>
   );
+}
+
+function isHouseholdConnected(household: {
+  status?: string;
+  sungrow_connected_at?: string | null;
+  tesla_connected_at?: string | null;
+  inverter_make?: string | null;
+} | null | undefined): boolean {
+  if (!household) return false;
+  return !!(
+    household.sungrow_connected_at ||
+    household.tesla_connected_at ||
+    (household.status === "active" && household.inverter_make)
+  );
+}
+
+function connectionLabel(household: {
+  inverter_make?: string | null;
+  sungrow_connected_at?: string | null;
+  tesla_connected_at?: string | null;
+} | null | undefined): string {
+  if (!household) return "system";
+  if (household.tesla_connected_at || household.inverter_make === "Tesla") return "Tesla";
+  if (household.sungrow_connected_at || household.inverter_make === "Sungrow") return "Sungrow";
+  return household.inverter_make || "system";
 }
 
 function ConnectYourSystemPrompt({
@@ -220,13 +270,15 @@ function ConnectYourSystemPrompt({
   isConnected?: boolean;
   onConnect?: () => void;
 }) {
-  if (inverterMake === "Sungrow" && isConnected) return null;
+  if (isConnected) return null;
+
+  const brand = inverterMake === "Tesla" ? "Tesla" : inverterMake === "Sungrow" ? "Sungrow" : "solar & battery";
 
   return (
     <section className="rounded-xl border border-emerald-600/40 bg-emerald-950/20 px-5 py-5">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-emerald-400">Connect your Sungrow system</h2>
+          <h2 className="text-base font-semibold text-emerald-400">Connect your {brand} system</h2>
           <p className="mt-1 text-sm text-slate-300 max-w-md">
             To see your live solar, battery, and grid data in the pilot, connect your inverter.
           </p>
@@ -246,27 +298,31 @@ function ConnectYourSystemPrompt({
 
 function NextStepsSection({
   isConnected,
+  inverterMake,
   onConnect,
 }: {
   isConnected?: boolean;
+  inverterMake?: string | null;
   onConnect?: () => void;
 }) {
+  const brand = inverterMake === "Tesla" ? "Tesla" : inverterMake === "Sungrow" ? "Sungrow" : "inverter";
+
   if (!isConnected) {
     return (
       <section className="rounded-lg border border-emerald-600/40 bg-emerald-950/10 px-5 py-4">
         <h3 className="text-base font-semibold text-emerald-400">Next steps to get started</h3>
         <ol className="mt-3 space-y-2 text-sm text-slate-300 list-decimal list-inside">
-          <li>Connect your Sungrow inverter using the button above</li>
+          <li>Connect your {brand} system using the button above</li>
           <li>Once connected, we&apos;ll start collecting your solar &amp; battery data (read-only during this phase)</li>
           <li>Check back each day to see your agent&apos;s suggested operating mode and the reasoning</li>
-          <li>In the coming weeks we&apos;ll move into the active pilot phase ΓÇö the agent will start setting modes on your system</li>
+          <li>In the coming weeks we&apos;ll move into the active pilot phase — the agent will start setting modes on your system</li>
         </ol>
         {onConnect && (
           <button
             onClick={onConnect}
             className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
           >
-            Connect Sungrow
+            Connect {brand === "inverter" ? "system" : brand}
           </button>
         )}
         <p className="mt-3 text-xs text-emerald-300/80">We&apos;re learning together with a small group of Mackay households. Your feedback helps shape what comes next.</p>
@@ -276,19 +332,21 @@ function NextStepsSection({
 
   return (
     <section className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-5 py-4">
-      <h3 className="text-base font-semibold text-emerald-400">You&apos;re connected ΓÇö here&apos;s what&apos;s next</h3>
+      <h3 className="text-base font-semibold text-emerald-400">You&apos;re connected — here&apos;s what&apos;s next</h3>
       <ul className="mt-3 space-y-2 text-sm text-slate-300 list-disc list-inside">
         <li>Check the dashboard daily to see your agent&apos;s latest suggestion and why it chose that mode</li>
         <li>Review &quot;Today&apos;s energy decision&quot; and &quot;Tomorrow&apos;s Outlook&quot; for context</li>
-        <li>We&apos;re still in the pre-pilot learning phase ΓÇö everything is read-only while we gather data from participating homes</li>
+        <li>We&apos;re still in the pre-pilot learning phase — everything is read-only while we gather data from participating homes</li>
         <li>Once we&apos;ve seen enough data, we&apos;ll move to the active phase where the agent can control operating modes for you</li>
       </ul>
-      <p className="mt-3 text-xs text-emerald-300/80">Thanks for being part of the early group ΓÇö your data is helping us build something useful for Mackay households.</p>
+      <p className="mt-3 text-xs text-emerald-300/80">Thanks for being part of the early group — your data is helping us build something useful for Mackay households.</p>
     </section>
   );
 }
 
 const DEV_TEST_HOUSEHOLDS = [
+  { id: "sungrow-test-001", label: "Sungrow Test 001" },
+  { id: "tesla-test-pilot-001", label: "Tesla Test Pilot 001" },
   { id: "mackay-pilot-01", label: "Mackay Pilot 01 (Sungrow connected)" },
   { id: "mackay-pilot-02", label: "Mackay Pilot 02 (Sungrow not connected)" },
   { id: "test-home-01", label: "Test Home 01 (simulated)" },
@@ -333,7 +391,7 @@ function CurrentModeCard({ mode, reason, contextLine }: { mode: string; reason: 
   return (
     <div className="rounded-xl border-2 border-emerald-500/35 bg-gradient-to-br from-emerald-950/50 via-slate-800/70 to-slate-800/60 p-5 shadow-lg shadow-emerald-950/30 sm:col-span-2 xl:col-span-1">
       <div className="flex items-start gap-3">
-        <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-lg text-emerald-300 ring-1 ring-emerald-500/30">ΓÜí</span>
+        <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-lg text-emerald-300 ring-1 ring-emerald-500/30">⚡</span>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400/80">Your setting today</p>
           <p className="mt-1 text-4xl font-bold leading-tight text-emerald-300">{formatModeHeadline(mode)}</p>
@@ -368,13 +426,13 @@ function OperatingModeInfoCard({
 }) {
   return (
     <div
-      aria-label={`${label} (${modeId}) ΓÇö agent controlled, informational only`}
+      aria-label={`${label} (${modeId}) — agent controlled, informational only`}
       className={`relative cursor-default rounded-lg border p-4 ${isActive ? "border-emerald-700/40 bg-slate-800/50 ring-1 ring-emerald-600/25" : "border-slate-700/60 bg-slate-800/30 opacity-90"}`}
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-base font-medium text-slate-200">{label}</p>
         <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-900/80 px-2 py-0.5 text-[10px] font-medium uppercase text-slate-400 ring-1 ring-slate-600/50">
-          <span aria-hidden>≡ƒöÆ</span> Agent
+          <span aria-hidden>🔒</span> Agent
         </span>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-slate-400">{description}</p>
@@ -398,8 +456,22 @@ function OperatingModesSection({ activeMode }: { activeMode: string }) {
   );
 }
 
-function LoadingState() {
-  return <div className="rounded-lg border border-slate-700 bg-slate-900 p-8 text-center text-slate-400">Loading pilot dashboardΓÇª</div>;
+function LoadingState({ onSkip }: { onSkip?: () => void }) {
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-900 p-8 text-center text-slate-400">
+      <p className="text-sm">Loading pilot dashboard…</p>
+      {onSkip && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={onSkip}
+            className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-900"
+          >
+            Skip and show dashboard
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function WarningBanner({ message }: { message: string }) {
@@ -412,6 +484,7 @@ function WarningBanner({ message }: { message: string }) {
 
 export function Dashboard({
   userId = DEFAULT_USER_ID,
+  refreshKey = 0,
   onConnectInverter,
   onOpenProfile,
   onOpenHelp,
@@ -436,7 +509,21 @@ export function Dashboard({
     householdQuery.refetch();
     snapshotQuery.refetch();
     decisionQuery.refetch();
+    readingsQuery.refetch();
   };
+
+  // Refetch in place when the app shell bumps refreshKey (e.g. after a
+  // connection request). The Dashboard used to be remounted via a React key
+  // instead, which discarded all loaded data and froze returning users on the
+  // full-screen loading state until every query resolved again.
+  const lastRefreshKey = useRef(refreshKey);
+  useEffect(() => {
+    if (refreshKey !== lastRefreshKey.current) {
+      lastRefreshKey.current = refreshKey;
+      refetchAll();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   const [liveTomorrowIrradiance, setLiveTomorrowIrradiance] = useState<number | null>(null);
   const [liveLowSolar, setLiveLowSolar] = useState(false);
@@ -449,7 +536,7 @@ export function Dashboard({
         const lon = 149.19;
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=shortwave_radiation_sum,weathercode&timezone=Australia/Brisbane&forecast_days=2`;
 
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!res.ok) throw new Error("Weather fetch failed");
 
         const data = await res.json();
@@ -473,6 +560,7 @@ export function Dashboard({
   const usingLiveWeather = liveTomorrowIrradiance != null;
 
   const [hasPendingFromDb, setHasPendingFromDb] = useState(false);
+  const [skipLoading, setSkipLoading] = useState(false);
 
   useEffect(() => {
     if (!householdId) return;
@@ -483,6 +571,7 @@ export function Dashboard({
         .select("id")
         .eq("household_id", householdId)
         .eq("status", "pending_review")
+        .abortSignal(queryTimeout())
         .limit(1);
 
       if (!error && data && data.length > 0) {
@@ -496,10 +585,14 @@ export function Dashboard({
   }, [householdId]);
 
   const effectivePending = hasPendingConnectionRequest || hasPendingFromDb;
+  const householdConnected = isHouseholdConnected(household);
+  const brand = connectionLabel(household);
 
-  if (loading && !snapshot && !household && !decision) return <LoadingState />;
+  if (loading && !skipLoading && !snapshot && !household && !decision) {
+    return <LoadingState onSkip={() => setSkipLoading(true)} />;
+  }
 
-  const mode = snapshot?.mode ?? decision?.mode ?? "ΓÇö";
+  const mode = snapshot?.mode ?? decision?.mode ?? "—";
   const reason = snapshot?.reason ?? decision?.reason ?? "No decision recorded";
   const dataSource = snapshot?.data_source ?? "simulated";
   const isLiveData = dataSource === "supabase" || dataSource === "live";
@@ -514,7 +607,7 @@ export function Dashboard({
   const yesterdaySavings = formatSavingsAud(snapshot?.yesterday_savings_aud);
   const cumulativeSavings = formatSavingsAud(snapshot?.cumulative_savings_aud);
   const savingsHint = snapshot?.data_quality_note
-    ? `${snapshot.data_quality_note} ΓÇó Ergon 12D TOU + 6c FIT`
+    ? `${snapshot.data_quality_note} • Ergon 12D TOU + 6c FIT`
     : "Calculated from your live solar + battery data + Ergon tariffs";
 
   return (
@@ -522,10 +615,10 @@ export function Dashboard({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-emerald-400">Aussie Grid Pilot Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-400">Mackay pilot ΓÇö your home energy overview</p>
+          <p className="mt-1 text-sm text-slate-400">Mackay pilot — your home energy overview</p>
           {household && (
             <p className="mt-2 text-sm text-slate-300">
-              {household.household_id}{household.is_test ? " ┬╖ test home" : ""} ┬╖ {household.status}{household.inverter_make ? ` ┬╖ ${household.inverter_make}` : ""}
+              {household.household_id}{household.is_test ? " · test home" : ""} · {household.status}{household.inverter_make ? ` · ${household.inverter_make}` : ""}
             </p>
           )}
         </div>
@@ -548,38 +641,47 @@ export function Dashboard({
         </div>
       </header>
 
+      {!isSupabaseConfigured && (
+        <WarningBanner message="This deployment is missing its database configuration (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY). Live data can't load until these are set in Vercel project settings." />
+      )}
+
       {queryError && (
         <WarningBanner
-          message={`Data temporarily unavailable: ${queryError}. You can still connect your system below ΓÇö this is normal for new pilot households.`}
+          message={`Data temporarily unavailable: ${queryError}. You can still connect your system below — this is normal for new pilot households.`}
         />
       )}
 
       {household && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3">
-          {household.sungrow_connected_at ? (
+          {householdConnected ? (
             <div className="flex items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              <span className="text-sm font-medium text-slate-200">Sungrow system connected</span>
-              <span className="text-xs text-slate-500">since {new Date(household.sungrow_connected_at).toLocaleDateString()}</span>
+              <span className="text-sm font-medium text-slate-200">{brand} system connected</span>
+              <span className="text-xs text-slate-500">
+                since{" "}
+                {new Date(
+                  household.tesla_connected_at || household.sungrow_connected_at || Date.now()
+                ).toLocaleDateString()}
+              </span>
             </div>
           ) : effectivePending ? (
             <div className="flex items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
               <div>
                 <span className="text-sm font-medium text-amber-200">Connection request pending review</span>
-                <p className="text-xs text-amber-300/80">Our team will activate read-only access within 1ΓÇô2 business days</p>
+                <p className="text-xs text-amber-300/80">Our team will activate read-only access within 1–2 business days</p>
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-              <span className="text-sm font-medium text-slate-200">Sungrow system not connected yet</span>
+              <span className="text-sm font-medium text-slate-200">{brand} system not connected yet</span>
             </div>
           )}
 
-          {!household.sungrow_connected_at && !effectivePending && onConnectInverter && (
+          {!householdConnected && !effectivePending && onConnectInverter && (
             <button onClick={onConnectInverter} className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 transition-colors">
-              Connect Sungrow
+              Connect {brand === "system" ? "system" : brand}
             </button>
           )}
         </div>
@@ -592,12 +694,13 @@ export function Dashboard({
 
       <ConnectYourSystemPrompt
         inverterMake={household?.inverter_make}
-        isConnected={!!household?.sungrow_connected_at}
+        isConnected={householdConnected}
         onConnect={onConnectInverter}
       />
 
       <NextStepsSection
-        isConnected={!!household?.sungrow_connected_at}
+        isConnected={householdConnected}
+        inverterMake={household?.inverter_make}
         onConnect={onConnectInverter}
       />
 
@@ -615,7 +718,17 @@ export function Dashboard({
         weatherLoading={weatherLoading}
       />
 
-      <EnergyReadingsChart readings={readingsQuery.readings} />
+      <ChartErrorBoundary>
+        <Suspense
+          fallback={
+            <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-5 text-sm text-slate-400">
+              Loading chart…
+            </section>
+          }
+        >
+          <EnergyReadingsChart readings={readingsQuery.readings} />
+        </Suspense>
+      </ChartErrorBoundary>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Home usage" value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"} hint={snapshot ? "Power your home is using right now" : undefined} />
@@ -636,7 +749,7 @@ export function Dashboard({
           </div>
           <SavingsTrendsPlaceholder />
         </div>
-        <MetricCard label="Last updated" value={snapshot ? formatTimestamp(snapshot.last_updated) : "ΓÇö"} hint={snapshot ? "When we last received data from your system" : undefined} />
+        <MetricCard label="Last updated" value={snapshot ? formatTimestamp(snapshot.last_updated) : "—"} hint={snapshot ? "When we last received data from your system" : undefined} />
       </section>
 
       <OperatingModesSection activeMode={String(mode)} />
@@ -652,13 +765,13 @@ export function Dashboard({
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">Mode in use</dt><dd>{formatModeLabel(String(finalMode ?? mode))}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">How confident</dt><dd>{formatConfidence(decision.confidence ?? 0)}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">Safety check</dt><dd>{decision.verification_passed ? "Passed" : "Adjusted for safety"}{decision.severity && !decision.verification_passed ? ` (${decision.severity})` : ""}</dd></div>
-                {decision.harmony_recommendation && <div className="flex justify-between gap-4"><dt className="text-slate-400">Coordinated with other homes</dt><dd>{formatHarmonyDetail(decision.harmony_recommendation)}{harmonyInfluenced ? " ┬╖ affected today's mode" : ""}</dd></div>}
+                {decision.harmony_recommendation && <div className="flex justify-between gap-4"><dt className="text-slate-400">Coordinated with other homes</dt><dd>{formatHarmonyDetail(decision.harmony_recommendation)}{harmonyInfluenced ? " · affected today's mode" : ""}</dd></div>}
                 <div><dt className="text-slate-400">Technical note</dt><dd className="mt-1 text-slate-200">{decision.reason}</dd></div>
               </dl>
             </>
           ) : (
             <p className="mt-4 text-sm text-slate-400">
-              No decision recorded yet. Connect your Sungrow system above and we&apos;ll start learning from your home&apos;s data.
+              No decision recorded yet. Connect your system above and we&apos;ll start learning from your home&apos;s data.
             </p>
           )}
         </div>

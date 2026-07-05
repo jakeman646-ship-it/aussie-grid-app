@@ -1,14 +1,79 @@
 ﻿/**
  * Aussie Grid — App shell
  * File: src/App.tsx
- * Version: v0.1.2.8
+ * Version: v0.1.2.13
  */
-import { useState } from 'react';
-import Dashboard from './components/Dashboard';
-import ConnectInverter from './components/ConnectInverter';
-import Help from './components/Help';
-import Profile from './components/Profile';
-import ChangePassword from './components/ChangePassword';
+import { Component, Suspense, useState, useTransition, type ReactNode } from 'react';
+import { lazyWithReload } from './lib/lazyRetry';
+
+const Dashboard = lazyWithReload(() => import('./components/Dashboard'));
+const ConnectInverter = lazyWithReload(() => import('./components/ConnectInverter'));
+const Help = lazyWithReload(() => import('./components/Help'));
+const Profile = lazyWithReload(() => import('./components/Profile'));
+const ChangePassword = lazyWithReload(() => import('./components/ChangePassword'));
+
+function ViewLoading() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center text-slate-400">
+      Loading…
+    </div>
+  );
+}
+
+interface ViewErrorBoundaryProps {
+  /** Changes when the user navigates; clears a previous view's error. */
+  resetKey: string;
+  children: ReactNode;
+}
+
+interface ViewErrorBoundaryState {
+  hasError: boolean;
+  errorKey: string | null;
+}
+
+class ViewErrorBoundary extends Component<ViewErrorBoundaryProps, ViewErrorBoundaryState> {
+  state: ViewErrorBoundaryState = { hasError: false, errorKey: null };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch() {
+    this.setState({ errorKey: this.props.resetKey });
+  }
+
+  componentDidUpdate(prevProps: ViewErrorBoundaryProps) {
+    // Navigating to a different view must never stay frozen on a stale error.
+    if (this.state.hasError && this.props.resetKey !== prevProps.resetKey) {
+      this.setState({ hasError: false, errorKey: null });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 text-slate-300">
+          <p>Something went wrong loading this page.</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => this.setState({ hasError: false, errorKey: null })}
+              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+            >
+              Try again
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="rounded-md border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
+            >
+              Reload page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type View = 'dashboard' | 'connect-inverter' | 'help' | 'profile' | 'change-password';
 
@@ -16,34 +81,42 @@ export default function App() {
   const [view, setView] = useState<View>('dashboard');
   const [currentUserId, setCurrentUserId] = useState<string>('sungrow-test-001');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [dashboardKey, setDashboardKey] = useState(0);
+  // Bumped to tell the Dashboard to refetch its data in place. This must NOT
+  // be used as a React key: remounting the Dashboard threw away all loaded
+  // data and pinned returning users on the full-screen loading state.
+  const [dashboardRefresh, setDashboardRefresh] = useState(0);
+  const [isNavigating, startNavigation] = useTransition();
 
-  const handleSignOut = () => {
-    setView('dashboard');
+  // Transition-based navigation keeps the current page visible and the nav
+  // clickable while the next view's chunk loads, instead of swapping the whole
+  // main area for a Suspense fallback that can appear frozen on slow networks.
+  const navigateTo = (newView: View) => {
     setMobileMenuOpen(false);
+    if (newView === view) return;
+    startNavigation(() => {
+      setView(newView);
+    });
   };
 
-  const navigateTo = (newView: View) => {
-    setView(newView);
-    setMobileMenuOpen(false);
+  const handleSignOut = () => {
+    navigateTo('dashboard');
   };
 
   const handleConnectInverter = () => {
-    setView('connect-inverter');
-    setMobileMenuOpen(false);
+    navigateTo('connect-inverter');
   };
 
   const handleBackToDashboard = () => {
-    setView('dashboard');
+    navigateTo('dashboard');
   };
 
   const handleConnectionComplete = () => {
-    setDashboardKey((k) => k + 1);
+    setDashboardRefresh((k) => k + 1);
   };
 
   const handleSwitchHousehold = (newUserId: string) => {
     setCurrentUserId(newUserId);
-    setDashboardKey((k) => k + 1);
+    setDashboardRefresh((k) => k + 1);
   };
 
   const navLinkClass = (active: boolean) =>
@@ -71,22 +144,28 @@ export default function App() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-1">
-            <button onClick={() => setView('dashboard')} className={navLinkClass(view === 'dashboard')}>
+            <button onClick={() => navigateTo('dashboard')} className={navLinkClass(view === 'dashboard')}>
               Dashboard
             </button>
-            <button onClick={() => setView('connect-inverter')} className={navLinkClass(view === 'connect-inverter')}>
+            <button onClick={() => navigateTo('connect-inverter')} className={navLinkClass(view === 'connect-inverter')}>
               Connect Inverter
             </button>
-            <button onClick={() => setView('help')} className={navLinkClass(view === 'help')}>
+            <button onClick={() => navigateTo('help')} className={navLinkClass(view === 'help')}>
               Help
             </button>
-            <button onClick={() => setView('profile')} className={navLinkClass(view === 'profile')}>
+            <button onClick={() => navigateTo('profile')} className={navLinkClass(view === 'profile')}>
               Profile
             </button>
           </div>
 
           {/* Right side actions */}
           <div className="flex items-center gap-2">
+            {isNavigating && (
+              <span
+                aria-hidden
+                className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500/40 border-t-emerald-400"
+              />
+            )}
             <button
               onClick={handleSignOut}
               className="hidden md:block rounded-md border border-red-600/60 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950/40"
@@ -121,35 +200,43 @@ export default function App() {
 
       {/* Page Content */}
       <main>
-        {view === 'dashboard' && (
-          <Dashboard
-            key={dashboardKey}
-            userId={currentUserId}
-            onConnectInverter={handleConnectInverter}
-            onOpenProfile={() => setView('profile')}
-            onOpenHelp={() => setView('help')}
-            onSignOut={handleSignOut}
-            onSwitchHousehold={handleSwitchHousehold}
-          />
-        )}
-        {view === 'connect-inverter' && (
-          <ConnectInverter
-            currentHouseholdId={currentUserId}
-            onBack={handleBackToDashboard}
-            onConnectionComplete={handleConnectionComplete}
-          />
-        )}
-        {view === 'help' && <Help onBack={() => setView('dashboard')} />}
-        {view === 'profile' && (
-          <Profile
-            onBack={() => setView('dashboard')}
-            onSignOut={handleSignOut}
-            onChangePassword={() => setView('change-password')}
-          />
-        )}
-        {view === 'change-password' && (
-          <ChangePassword onPasswordChanged={() => setView('dashboard')} />
-        )}
+        <ViewErrorBoundary resetKey={view}>
+          <Suspense fallback={<ViewLoading />}>
+            {/* The Dashboard stays mounted and is only hidden while other
+                views are open. Unmounting it on navigation discarded all
+                loaded data, so every return froze on the loading state while
+                each query started over. */}
+            <div className={view === 'dashboard' ? undefined : 'hidden'}>
+              <Dashboard
+                refreshKey={dashboardRefresh}
+                userId={currentUserId}
+                onConnectInverter={handleConnectInverter}
+                onOpenProfile={() => navigateTo('profile')}
+                onOpenHelp={() => navigateTo('help')}
+                onSignOut={handleSignOut}
+                onSwitchHousehold={handleSwitchHousehold}
+              />
+            </div>
+            {view === 'connect-inverter' && (
+              <ConnectInverter
+                currentHouseholdId={currentUserId}
+                onBack={handleBackToDashboard}
+                onConnectionComplete={handleConnectionComplete}
+              />
+            )}
+            {view === 'help' && <Help onBack={handleBackToDashboard} />}
+            {view === 'profile' && (
+              <Profile
+                onBack={handleBackToDashboard}
+                onSignOut={handleSignOut}
+                onChangePassword={() => navigateTo('change-password')}
+              />
+            )}
+            {view === 'change-password' && (
+              <ChangePassword onPasswordChanged={handleBackToDashboard} />
+            )}
+          </Suspense>
+        </ViewErrorBoundary>
       </main>
     </div>
   );
