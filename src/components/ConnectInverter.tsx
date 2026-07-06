@@ -1,19 +1,31 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.2.13
+ * Version: v0.1.2.17
+ * Lines: 592
+ * Updated: 7 Jul 2026 — fix submit timeout: leaner status queries (id-only
+ *          pending check), raised query timeout, clearer submitting state.
  */
 import { useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
-import { supabase, queryTimeout } from "@/lib/supabase";
+import {
+  supabase,
+  queryTimeout,
+  isSupabaseConfigured,
+  getSupabaseConfigIssue,
+} from "@/lib/supabase";
+import {
+  submitConnectionRequest,
+  mapConnectionSubmitError,
+  isTransientFetchError,
+  type InverterMake,
+} from "@/lib/api/submitConnectionRequest";
 
 export interface ConnectInverterProps {
   onBack?: () => void;
   onConnectionComplete?: () => void;
   currentHouseholdId?: string;
 }
-
-type InverterMake = "Sungrow" | "Tesla";
 
 interface FormData {
   householdLabel: string;
@@ -98,6 +110,9 @@ export function ConnectInverter({
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: "none" });
   const [checkingStatus, setCheckingStatus] = useState(true);
+  const [connectivityWarning, setConnectivityWarning] = useState<string | null>(null);
+
+  const configIssue = getSupabaseConfigIssue();
 
   const copy = INVERTER_COPY[inverterMake];
 
@@ -113,20 +128,21 @@ export function ConnectInverter({
         const [pendingResult, householdResult] = await Promise.all([
           supabase
             .from("pilot_connection_requests")
-            .select("id, status")
+            .select("id")
             .eq("household_id", currentHouseholdId)
             .eq("status", "pending_review")
             .abortSignal(queryTimeout())
+            .limit(1)
             .maybeSingle(),
           supabase
             .from("pilot_households")
-            .select("status, sungrow_connected_at, tesla_connected_at, inverter_make")
+            .select("status, sungrow_connected_at, tesla_connected_at")
             .eq("household_id", currentHouseholdId)
             .abortSignal(queryTimeout())
             .maybeSingle(),
         ]);
 
-        if (pendingResult.data) {
+        if (pendingResult.data?.id) {
           setConnectionStatus({
             status: "pending",
             message: "Your connection request is currently being reviewed by the team.",
@@ -139,9 +155,7 @@ export function ConnectInverter({
           household &&
           (household.status === "active" ||
             household.sungrow_connected_at ||
-            household.tesla_connected_at ||
-            household.inverter_make === "Sungrow" ||
-            household.inverter_make === "Tesla");
+            household.tesla_connected_at);
 
         if (isConnected) {
           setConnectionStatus({
@@ -153,6 +167,11 @@ export function ConnectInverter({
         }
       } catch (err) {
         console.error("Error checking connection status:", err);
+        if (isTransientFetchError(err)) {
+          setConnectivityWarning(
+            "Could not reach the database to check your status. You can still submit a connection request below."
+          );
+        }
         setConnectionStatus({ status: "none" });
       } finally {
         setCheckingStatus(false);
@@ -170,14 +189,6 @@ export function ConnectInverter({
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (error) setError(null);
-  };
-
-  const generateHouseholdId = (label: string, siteId: string): string => {
-    if (label.trim()) {
-      return label.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").slice(0, 40);
-    }
-    const short = siteId.trim().replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || Date.now().toString(36);
-    return `pending-${short}`;
   };
 
   const validateForm = (): boolean => {
@@ -213,48 +224,42 @@ export function ConnectInverter({
     e.preventDefault();
     if (!validateForm()) return;
 
-    const targetHouseholdId = generateHouseholdId(formData.householdLabel, formData.siteId);
-
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const payload: Record<string, unknown> = {
-        household_id: targetHouseholdId,
-        site_id: formData.siteId.trim(),
-        account_email: formData.accountEmail.trim().toLowerCase(),
-        inverter_serial: formData.inverterSerial.trim() || null,
-        notes: formData.notes.trim() || null,
-        inverter_brand: inverterMake,
-        status: "pending_review",
-        requested_at: new Date().toISOString(),
-      };
+      const result = await submitConnectionRequest({
+        inverterMake,
+        householdLabel: formData.householdLabel,
+        siteId: formData.siteId,
+        accountEmail: formData.accountEmail,
+        accountPassword: formData.accountPassword,
+        inverterSerial: formData.inverterSerial,
+        notes: formData.notes,
+        currentHouseholdId,
+      });
 
-      if (inverterMake === "Tesla") {
-        payload.account_password = formData.accountPassword;
+      if (!result.ok) {
+        setError(result.message);
+        return;
       }
 
-      const { error: insertError } = await supabase.from("pilot_connection_requests").insert(payload);
-
-      if (insertError) {
-        if (insertError.code === "23505" || insertError.message?.toLowerCase().includes("duplicate")) {
-          setConnectionStatus({
-            status: "pending",
-            message: "A pending request already exists for this household. Our team is reviewing it.",
-          });
-          setError(insertError.message);
-        } else {
-          throw insertError;
-        }
-      } else {
-        setIsSubmitted(true);
-        onConnectionComplete?.();
+      if (result.reusedPending) {
+        setConnectionStatus({
+          status: "pending",
+          message: "Your connection request is already being reviewed. We've refreshed it with your latest details.",
+        });
       }
+
+      setIsSubmitted(true);
+      onConnectionComplete?.();
     } catch (err: unknown) {
       console.error("Connection request error:", err);
-      const message =
-        err instanceof Error ? err.message : "Failed to submit request. Please try again or contact support.";
-      setError(message);
+      setError(
+        mapConnectionSubmitError(
+          err instanceof Error ? err : new Error("Failed to submit request.")
+        )
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -337,6 +342,22 @@ export function ConnectInverter({
             </div>
           </div>
         </div>
+
+        {(!isSupabaseConfigured || configIssue) && (
+          <div className="mb-6 rounded-lg border border-amber-700/60 bg-amber-950/30 px-5 py-4">
+            <p className="text-sm font-medium text-amber-200">Database not connected in this build</p>
+            <p className="mt-1 text-sm leading-relaxed text-amber-100/90">
+              {configIssue ??
+                "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel (SUPABASE_URL / publishable key aliases also work), then redeploy so the build picks them up."}
+            </p>
+          </div>
+        )}
+
+        {connectivityWarning && (
+          <div className="mb-6 rounded-lg border border-amber-700/60 bg-amber-950/30 px-5 py-4">
+            <p className="text-sm text-amber-100/90">{connectivityWarning}</p>
+          </div>
+        )}
 
         <div className="mb-6 rounded-lg border border-emerald-600/40 bg-emerald-950/20 px-5 py-4">
           <p className="text-sm font-medium text-emerald-300">Read-only during pre-pilot learning phase</p>
@@ -502,7 +523,7 @@ export function ConnectInverter({
                 disabled={isSubmitting || checkingStatus}
                 className="mt-6 w-full rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-700"
               >
-                {isSubmitting ? "Submitting request..." : "Submit connection request"}
+                {isSubmitting ? "Submitting request… (may take up to a minute on slow connections)" : "Submit connection request"}
               </button>
 
               <p className="mt-3 text-center text-xs text-slate-500">

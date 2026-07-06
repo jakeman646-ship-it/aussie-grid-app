@@ -1,10 +1,12 @@
 ﻿/**
  * Aussie Grid — App shell
  * File: src/App.tsx
- * Version: v0.1.2.13
+ * Version: v0.1.2.17
+ * Lines: 247
  */
 import { Component, Suspense, useState, useTransition, type ReactNode } from 'react';
 import { lazyWithReload } from './lib/lazyRetry';
+import { getCurrentHouseholdId, setCurrentHouseholdId } from './lib/currentHousehold';
 
 const Dashboard = lazyWithReload(() => import('./components/Dashboard'));
 const ConnectInverter = lazyWithReload(() => import('./components/ConnectInverter'));
@@ -79,7 +81,7 @@ type View = 'dashboard' | 'connect-inverter' | 'help' | 'profile' | 'change-pass
 
 export default function App() {
   const [view, setView] = useState<View>('dashboard');
-  const [currentUserId, setCurrentUserId] = useState<string>('sungrow-test-001');
+  const [currentUserId, setCurrentUserId] = useState<string>(() => getCurrentHouseholdId());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   // Bumped to tell the Dashboard to refetch its data in place. This must NOT
   // be used as a React key: remounting the Dashboard threw away all loaded
@@ -115,6 +117,7 @@ export default function App() {
   };
 
   const handleSwitchHousehold = (newUserId: string) => {
+    setCurrentHouseholdId(newUserId);
     setCurrentUserId(newUserId);
     setDashboardRefresh((k) => k + 1);
   };

@@ -1,7 +1,7 @@
 /**
  * Aussie Grid — Connection Requests (internal review)
  * File: src/components/Requests.tsx
- * Version: v0.1.2.13
+ * Version: v0.1.2.17
  */
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';

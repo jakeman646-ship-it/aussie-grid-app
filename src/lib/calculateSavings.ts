@@ -1,7 +1,7 @@
 ﻿/**
  * Aussie Grid — Savings calculation
  * File: src/lib/calculateSavings.ts
- * Version: v0.1.2.13
+ * Version: v0.1.2.17
  *
  * Ergon Tariff 12D TOU + FIT — mirrors services/savings_engine.py
  */

@@ -1,12 +1,13 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.13
+ * Version: v0.1.2.19
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
 
 const EnergyReadingsChart = lazyWithReload(() => import("@/components/EnergyReadingsChart"));
+const WeeklyReadoutCharts = lazyWithReload(() => import("@/components/WeeklyReadoutCharts"));
 
 /** Keeps a failed chart chunk from taking down the whole dashboard. */
 class ChartErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -31,6 +32,8 @@ import {
   useHouseholdSnapshot,
   useLatestDecision,
   usePilotHousehold,
+  usePilotPhase,
+  useWeeklyReadout,
 } from "@/hooks";
 import { useHouseholdReadings } from "@/hooks/useHouseholdReadings";
 import {
@@ -49,6 +52,9 @@ import {
 import { formatAppVersion } from "@/lib/version";
 import type { AgentDecision } from "@/types/agentDecision";
 import type { Mode } from "@/types/mode";
+import { pilotPhaseLabel } from "@/types/pilotConfig";
+import { type AgentControlMode, isAgentControlActive } from "@/types/agentControl";
+import { AgentControlBanner } from "@/components/AgentControlBanner";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
 import { useState, useEffect, useRef } from "react";
 import { supabase, queryTimeout, isSupabaseConfigured } from "@/lib/supabase";
@@ -162,11 +168,25 @@ function MetricCard({ label, value, hint }: { label: string; value: string; hint
   );
 }
 
-function SavingsTrendsPlaceholder() {
+function SavingsTrendsSection({
+  readout,
+  loading,
+}: {
+  readout: import("@/types/pilotConfig").WeeklyReadout | null;
+  loading?: boolean;
+}) {
   return (
-    <div className="mt-4 rounded-md bg-slate-900/60 px-3 py-2">
-      <p className="text-sm leading-relaxed text-slate-400">Daily and weekly savings views will be available in a future update.</p>
-    </div>
+    <ChartErrorBoundary>
+      <Suspense
+        fallback={
+          <div className="mt-4 rounded-md bg-slate-900/60 px-3 py-2 text-sm text-slate-400">
+            Loading weekly readout charts…
+          </div>
+        }
+      >
+        <WeeklyReadoutCharts readout={readout} loading={loading} />
+      </Suspense>
+    </ChartErrorBoundary>
   );
 }
 
@@ -175,21 +195,6 @@ function AppVersionFooter() {
     <footer className="flex justify-center border-t border-slate-800/80 pt-4 sm:justify-end">
       <p className="text-xs text-slate-500">{formatAppVersion()}</p>
     </footer>
-  );
-}
-
-function ReadOnlyPilotBanner() {
-  return (
-    <div role="status" className="rounded-lg border border-emerald-600/40 bg-emerald-950/20 px-4 py-3">
-      <p className="text-sm font-medium text-emerald-300">Pre-pilot learning phase</p>
-      <p className="mt-1 text-sm leading-relaxed text-emerald-100/90">
-        We&apos;re currently in an early data collection stage with a small group of Mackay households.
-        During this phase, we&apos;re only reading data from your solar and battery system — we cannot control your inverter or change any settings yet.
-      </p>
-      <p className="mt-2 text-sm leading-relaxed text-emerald-100/90">
-        Once we&apos;ve seen enough data from participating homes, we&apos;ll move into the active pilot phase where the agent can start setting operating modes on your system.
-      </p>
-    </div>
   );
 }
 
@@ -441,12 +446,15 @@ function OperatingModeInfoCard({
   );
 }
 
-function OperatingModesSection({ activeMode }: { activeMode: string }) {
+function OperatingModesSection({ activeMode, controlMode }: { activeMode: string; controlMode: AgentControlMode }) {
   const activeKey = normalizeModeKey(activeMode);
+  const phaseNote = isAgentControlActive(controlMode)
+    ? "The agent automatically chooses and applies the best mode on your inverter."
+    : "Read-only mode — the agent suggests operating modes but cannot change your inverter until you activate agent control.";
   return (
     <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
       <h2 className="text-lg font-medium text-emerald-400">Operating Modes</h2>
-      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">During this read-only pilot phase, the agent automatically chooses the best mode each day. Manual override will be available in a future update.</p>
+      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">{phaseNote}</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {OPERATING_MODES.map(({ id, description }) => (
           <OperatingModeInfoCard key={id} modeId={id} label={formatModeLabel(id)} description={description} isActive={activeKey === id} />
@@ -493,10 +501,12 @@ export function Dashboard({
   hasPendingConnectionRequest = false,
 }: DashboardProps) {
   const householdQuery = usePilotHousehold(userId);
+  const phaseQuery = usePilotPhase();
   const householdId = householdQuery.data?.household_id ?? userId;
   const snapshotQuery = useHouseholdSnapshot(householdId);
   const decisionQuery = useLatestDecision(householdId);
   const readingsQuery = useHouseholdReadings(householdId);
+  const readoutQuery = useWeeklyReadout(householdId);
 
   const loading = householdQuery.loading || snapshotQuery.loading || decisionQuery.loading;
   const queryError = householdQuery.error?.message ?? snapshotQuery.error?.message ?? decisionQuery.error?.message;
@@ -510,6 +520,8 @@ export function Dashboard({
     snapshotQuery.refetch();
     decisionQuery.refetch();
     readingsQuery.refetch();
+    readoutQuery.refetch();
+    phaseQuery.refetch();
   };
 
   // Refetch in place when the app shell bumps refreshKey (e.g. after a
@@ -585,6 +597,8 @@ export function Dashboard({
   }, [householdId]);
 
   const effectivePending = hasPendingConnectionRequest || hasPendingFromDb;
+  const pilotPhase = phaseQuery.phase;
+  const agentControlMode: AgentControlMode = household?.agent_control_mode === "agent_control" ? "agent_control" : "read_only";
   const householdConnected = isHouseholdConnected(household);
   const brand = connectionLabel(household);
 
@@ -615,7 +629,9 @@ export function Dashboard({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-emerald-400">Aussie Grid Pilot Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-400">Mackay pilot — your home energy overview</p>
+          <p className="mt-1 text-sm text-slate-400">
+            Mackay pilot — {isAgentControlActive(agentControlMode) ? "Agent control active" : pilotPhaseLabel(pilotPhase)}
+          </p>
           {household && (
             <p className="mt-2 text-sm text-slate-300">
               {household.household_id}{household.is_test ? " · test home" : ""} · {household.status}{household.inverter_make ? ` · ${household.inverter_make}` : ""}
@@ -689,7 +705,12 @@ export function Dashboard({
 
       {effectivePending && <PendingRequestBanner />}
 
-      <ReadOnlyPilotBanner />
+      <AgentControlBanner
+        householdId={householdId}
+        mode={agentControlMode}
+        isConnected={householdConnected}
+        onActivated={() => householdQuery.refetch()}
+      />
       <WelcomePilotOverview />
 
       <ConnectYourSystemPrompt
@@ -747,12 +768,12 @@ export function Dashboard({
                 : "Total savings from your available readings"}
             />
           </div>
-          <SavingsTrendsPlaceholder />
+          <SavingsTrendsSection readout={readoutQuery.data} loading={readoutQuery.loading} />
         </div>
         <MetricCard label="Last updated" value={snapshot ? formatTimestamp(snapshot.last_updated) : "—"} hint={snapshot ? "When we last received data from your system" : undefined} />
       </section>
 
-      <OperatingModesSection activeMode={String(mode)} />
+      <OperatingModesSection activeMode={String(mode)} controlMode={agentControlMode} />
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">

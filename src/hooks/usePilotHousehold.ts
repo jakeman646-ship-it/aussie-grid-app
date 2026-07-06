@@ -20,6 +20,9 @@ export interface PilotHousehold {
   tesla_site_id?: string | null;
   tesla_connected_at?: string | null;
   tesla_account_email?: string | null;
+  /** read_only = suggest only; agent_control = agent applies modes */
+  agent_control_mode?: "read_only" | "agent_control";
+  agent_control_activated_at?: string | null;
 }
 
 interface UsePilotHouseholdResult {

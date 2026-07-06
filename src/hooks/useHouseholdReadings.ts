@@ -1,7 +1,7 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdReadings.ts
- * Version: v0.1.2.13
+ * Version: v0.1.2.17
  */
 import { useCallback, useEffect, useState } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";

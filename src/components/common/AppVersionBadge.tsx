@@ -1,7 +1,7 @@
 /**
  * Aussie Grid — Common
  * File: src/components/common/AppVersionBadge.tsx
- * Version: v0.1.2.13
+ * Version: v0.1.2.19
  * Lines: 14
  */
 import { formatAppVersion } from "@/lib/version";

@@ -1,7 +1,7 @@
 /**
  * Aussie Grid — Lazy chunk loading with stale-deploy recovery
  * File: src/lib/lazyRetry.ts
- * Version: v0.1.2.13
+ * Version: v0.1.2.17
  */
 import { createElement, lazy, type ComponentType } from "react";
 
