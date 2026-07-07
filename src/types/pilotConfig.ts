@@ -1,6 +1,14 @@
-import type { PilotPhase } from "@/types/pilotConfig";
-
-export type { PilotPhase };
+/**
+ * Pilot config + weekly readout types
+ * File: src/types/pilotConfig.ts
+ * Version: v0.1.2.19
+ * Lines: 44
+ */
+/**
+ * Global Mackay pilot phase toggle.
+ * @see aussie-grid-backend/models/pilot_config.py — PilotPhase
+ */
+export type PilotPhase = "pre_pilot" | "active";
 
 export interface SavingsOpportunity {
   category: string;

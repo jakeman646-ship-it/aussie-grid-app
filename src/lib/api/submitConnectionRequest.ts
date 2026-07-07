@@ -77,7 +77,7 @@ function buildPayload(
   const serial = input.inverterSerial?.trim();
   if (serial) payload.inverter_serial = serial;
 
-  if (input.inverterMake === "Tesla" && input.accountPassword?.trim()) {
+  if (input.accountPassword?.trim()) {
     payload.account_password = input.accountPassword;
   }
 

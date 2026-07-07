@@ -1,20 +1,20 @@
 /**
  * Aussie Grid — Connection Requests (internal review)
  * File: src/components/Requests.tsx
- * Version: v0.1.2.17
+ * Version: v0.1.2.20
+ * Lines: 350
+ * Updated: 7 Jul 2026 — fix approve: transfer site_id → sungrow_plant_id and
+ *          inverter_serial; promote is_test → false via shared approve helper.
  */
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import {
+  approveConnectionRequest,
+  getTeslaMissingFields,
+  type ConnectionRequestRow,
+} from '@/lib/api/approveConnectionRequest';
 
-interface ConnectionRequest {
-  id: string;
-  household_id: string;
-  site_id: string;
-  account_email: string;
-  account_password: string | null;
-  inverter_brand: string | null;
-  inverter_serial: string | null;
-  notes: string | null;
+interface ConnectionRequest extends ConnectionRequestRow {
   status: string;
   requested_at: string;
 }
@@ -69,56 +69,20 @@ export function Requests({ onBack }: RequestsProps) {
 
     try {
       const isTesla = req.inverter_brand === 'Tesla';
-      const now = new Date().toISOString();
-      const make = req.inverter_brand || 'Sungrow';
-
-      const { error: updateReqError } = await supabase
-        .from('pilot_connection_requests')
-        .update({ status: 'approved' })
-        .eq('id', req.id);
-
-      if (updateReqError) throw updateReqError;
-
-      const householdPayload: Record<string, unknown> = {
-        household_id: req.household_id,
-        email: req.account_email,
-        status: 'active',
-        inverter_make: make,
-        consent_given: true,
-        onboarding_notes: req.notes || 'Approved via Requests page',
-      };
-
       if (isTesla) {
-        Object.assign(householdPayload, {
-          tesla_site_id: req.site_id,
-          tesla_connected_at: now,
-          tesla_account_email: req.account_email,
-          tesla_account_password: req.account_password,
-        });
-      } else {
-        Object.assign(householdPayload, {
-          sungrow_connected_at: now,
-          battery_capacity_kwh: 13.5,
-          solar_kw: 6.6,
-        });
+        const missing = getTeslaMissingFields(req);
+        if (missing.length > 0) {
+          throw new Error(`Cannot approve — missing: ${missing.join(', ')}`);
+        }
       }
 
-      const { error: upsertError } = await supabase
-        .from('pilot_households')
-        .upsert(householdPayload, {
-          onConflict: 'household_id'
-        });
-
-      if (upsertError) {
-        console.warn('Household upsert warning:', upsertError);
-      }
-
-      setSuccessMessage(`Approved ${req.household_id}. Household is now live.`);
+      const action = await approveConnectionRequest(req, { promoteToReal: true });
+      setSuccessMessage(`Approved ${req.household_id} (${action}). Site ID and serial transferred to household.`);
       closeModal();
       await fetchPendingRequests();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Approve error:', err);
-      setError(err.message || 'Failed to approve request.');
+      setError(err instanceof Error ? err.message : 'Failed to approve request.');
     } finally {
       setIsProcessing(false);
     }

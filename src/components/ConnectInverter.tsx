@@ -1,10 +1,10 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.2.17
- * Lines: 592
- * Updated: 7 Jul 2026 — fix submit timeout: leaner status queries (id-only
- *          pending check), raised query timeout, clearer submitting state.
+ * Version: v0.1.2.21
+ * Lines: 604
+ * Updated: 8 Jul 2026 — Sungrow iSolarCloud account password field (Tesla-style);
+ *          saved to pilot_connection_requests.account_password on submit.
  */
 import { useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
@@ -70,7 +70,8 @@ const INVERTER_COPY: Record<
       "Log into your Sungrow iSolarCloud account",
       "Go to your plant → Settings → General information and copy the Plant ID (Site ID)",
       "(Optional) Copy your inverter's Serial Number",
-      "Enter the details below. We'll request read-only access on your behalf.",
+      "Enter your iSolarCloud account email and password below so we can request read-only access",
+      "We'll review and activate read-only data access on your behalf.",
     ],
     successVerify: "We verify your Site ID and request read-only access from Sungrow",
   },
@@ -215,6 +216,10 @@ export function ConnectInverter({
     }
     if (inverterMake === "Tesla" && !formData.accountPassword.trim()) {
       setError("Please enter your Tesla account password.");
+      return false;
+    }
+    if (inverterMake === "Sungrow" && !formData.accountPassword.trim()) {
+      setError("Please enter your Sungrow iSolarCloud account password.");
       return false;
     }
     return true;
@@ -455,16 +460,23 @@ export function ConnectInverter({
                   <p className="mt-1 text-xs text-slate-500">{copy.emailHint}</p>
                 </div>
 
-                {inverterMake === "Tesla" && (
+                {(inverterMake === "Tesla" || inverterMake === "Sungrow") && (
                   <div>
                     <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                      Tesla account password <span className="text-red-400">*</span>
+                      {inverterMake === "Tesla"
+                        ? "Tesla account password"
+                        : "Sungrow iSolarCloud account password"}{" "}
+                      <span className="text-red-400">*</span>
                     </label>
                     <input
                       type="password"
                       value={formData.accountPassword}
                       onChange={(e) => handleInputChange("accountPassword", e.target.value)}
-                      placeholder="Your Tesla account password"
+                      placeholder={
+                        inverterMake === "Tesla"
+                          ? "Your Tesla account password"
+                          : "Your iSolarCloud account password"
+                      }
                       autoComplete="current-password"
                       className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                       required

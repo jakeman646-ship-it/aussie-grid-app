@@ -15,7 +15,9 @@ export interface PilotHousehold {
   // Sungrow connection fields
   sungrow_app_key?: string | null;
   sungrow_access_key?: string | null;
+  sungrow_plant_id?: string | null;
   sungrow_connected_at?: string | null;
+  inverter_serial?: string | null;
   // Tesla connection fields
   tesla_site_id?: string | null;
   tesla_connected_at?: string | null;
