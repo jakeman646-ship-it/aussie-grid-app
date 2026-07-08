@@ -1,7 +1,9 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.19
+ * Version: v0.1.2.25
+ * Lines: 940
+ * Updated: 9 Jul 2026 — Stop Impersonating control on admin banner.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -30,10 +32,13 @@ class ChartErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
 }
 import {
   useHouseholdSnapshot,
+  useImpersonation,
   useLatestDecision,
   usePilotHousehold,
   usePilotPhase,
   useWeeklyReadout,
+  formatPhaseCountLabel,
+  stopImpersonating,
 } from "@/hooks";
 import { useHouseholdReadings } from "@/hooks/useHouseholdReadings";
 import {
@@ -56,6 +61,7 @@ import { pilotPhaseLabel } from "@/types/pilotConfig";
 import { type AgentControlMode, isAgentControlActive } from "@/types/agentControl";
 import { AgentControlBanner } from "@/components/AgentControlBanner";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
+import { getImpersonationDataNotice } from "@/lib/impersonationDataStatus";
 import { useState, useEffect, useRef } from "react";
 import { supabase, queryTimeout, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -154,6 +160,8 @@ export interface DashboardProps {
   onOpenProfile?: () => void;
   onOpenHelp?: () => void;
   onSignOut?: () => void;
+  /** True while App.tsx is calling supabase.auth.signOut(). */
+  signingOut?: boolean;
   onSwitchHousehold?: (newUserId: string) => void;
   hasPendingConnectionRequest?: boolean;
 }
@@ -490,6 +498,53 @@ function WarningBanner({ message }: { message: string }) {
   );
 }
 
+/** Neutral info for admin impersonation — missing pilot data is expected, not an outage. */
+function ImpersonationDataNotice({ message }: { message: string }) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-slate-600/60 bg-slate-900/50 px-4 py-3 text-sm leading-relaxed text-slate-300"
+    >
+      {message}
+    </div>
+  );
+}
+
+/** Shown at the top when an admin is viewing another household's dashboard. */
+function AdminImpersonationBanner({ householdId }: { householdId: string }) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-violet-500/50 bg-violet-950/80 px-4 py-3"
+    >
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+        <p className="text-sm font-semibold tracking-wide text-violet-100">
+          Admin View – Impersonating {householdId}
+        </p>
+        {/* Clears ?impersonate= and reloads so hooks use the logged-in household again. */}
+        <button
+          type="button"
+          onClick={stopImpersonating}
+          className="shrink-0 rounded-md border border-violet-400/35 bg-violet-900/50 px-2.5 py-1 text-xs font-medium text-violet-100 hover:border-violet-300/50 hover:bg-violet-800/60 hover:text-white transition-colors"
+        >
+          Stop impersonating
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PhaseCountBadge({ phaseCount }: { phaseCount?: number | null }) {
+  const label = formatPhaseCountLabel(phaseCount);
+  if (!label) return null;
+
+  return (
+    <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-slate-200 ring-1 ring-slate-600/50">
+      {label}
+    </span>
+  );
+}
+
 export function Dashboard({
   userId = DEFAULT_USER_ID,
   refreshKey = 0,
@@ -497,14 +552,24 @@ export function Dashboard({
   onOpenProfile,
   onOpenHelp,
   onSignOut,
+  signingOut = false,
   onSwitchHousehold,
   hasPendingConnectionRequest = false,
 }: DashboardProps) {
-  const householdQuery = usePilotHousehold(userId);
+  // ?impersonate=<household_id> lets admins (or dev) load another household's data.
+  const {
+    effectiveHouseholdId,
+    isImpersonating,
+    impersonatedHouseholdId,
+    checking: impersonationChecking,
+    denied: impersonationDenied,
+  } = useImpersonation(userId);
+
+  const householdQuery = usePilotHousehold(effectiveHouseholdId, { isImpersonating });
   const phaseQuery = usePilotPhase();
-  const householdId = householdQuery.data?.household_id ?? userId;
-  const snapshotQuery = useHouseholdSnapshot(householdId);
-  const decisionQuery = useLatestDecision(householdId);
+  const householdId = householdQuery.data?.household_id ?? effectiveHouseholdId;
+  const snapshotQuery = useHouseholdSnapshot(householdId, { isImpersonating });
+  const decisionQuery = useLatestDecision(householdId, { isImpersonating });
   const readingsQuery = useHouseholdReadings(householdId);
   const readoutQuery = useWeeklyReadout(householdId);
 
@@ -514,6 +579,22 @@ export function Dashboard({
   const household = householdQuery.data;
   const snapshot = snapshotQuery.data;
   const decision = decisionQuery.data;
+
+  const hasLiveSnapshot =
+    snapshot != null && snapshot.data_source !== "no_data" && snapshot.data_source !== "simulated";
+
+  const impersonationDataReady =
+    !householdQuery.loading && !snapshotQuery.loading && !decisionQuery.loading;
+
+  // Impersonation-aware messaging: new households often have no registry row, readings, or decisions yet.
+  const impersonationDataNotice =
+    isImpersonating && impersonationDataReady
+      ? getImpersonationDataNotice({
+          householdMissing: !household,
+          hasQueryError: Boolean(queryError),
+          hasLiveSnapshot,
+        })
+      : null;
 
   const refetchAll = () => {
     householdQuery.refetch();
@@ -601,8 +682,9 @@ export function Dashboard({
   const agentControlMode: AgentControlMode = household?.agent_control_mode === "agent_control" ? "agent_control" : "read_only";
   const householdConnected = isHouseholdConnected(household);
   const brand = connectionLabel(household);
+  const phaseCountLabel = formatPhaseCountLabel(household?.phase_count);
 
-  if (loading && !skipLoading && !snapshot && !household && !decision) {
+  if ((loading || impersonationChecking) && !skipLoading && !snapshot && !household && !decision) {
     return <LoadingState onSkip={() => setSkipLoading(true)} />;
   }
 
@@ -626,6 +708,14 @@ export function Dashboard({
 
   return (
     <div className="space-y-6 bg-slate-950 p-6 text-slate-100">
+      {isImpersonating && impersonatedHouseholdId && (
+        <AdminImpersonationBanner householdId={impersonatedHouseholdId} />
+      )}
+
+      {impersonationDenied && (
+        <WarningBanner message="Impersonation is only available in development or for admin accounts. Showing your own household data." />
+      )}
+
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-emerald-400">Aussie Grid Pilot Dashboard</h1>
@@ -633,14 +723,17 @@ export function Dashboard({
             Mackay pilot — {isAgentControlActive(agentControlMode) ? "Agent control active" : pilotPhaseLabel(pilotPhase)}
           </p>
           {household && (
-            <p className="mt-2 text-sm text-slate-300">
-              {household.household_id}{household.is_test ? " · test home" : ""} · {household.status}{household.inverter_make ? ` · ${household.inverter_make}` : ""}
-            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-sm text-slate-300">
+                {household.household_id}{household.is_test ? " · test home" : ""} · {household.status}{household.inverter_make ? ` · ${household.inverter_make}` : ""}
+              </p>
+              <PhaseCountBadge phaseCount={household.phase_count} />
+            </div>
           )}
         </div>
 
         <div className="flex items-center gap-3">
-          <DevHouseholdSwitcher currentId={userId} onSwitch={onSwitchHousehold} />
+          <DevHouseholdSwitcher currentId={effectiveHouseholdId} onSwitch={onSwitchHousehold} />
 
           <span className={`rounded-full px-3 py-1 text-xs font-medium ${isLiveData ? "bg-emerald-900/60 text-emerald-300" : "bg-amber-900/40 text-amber-200"}`}>
             {isLiveData ? "Live data" : "Sample data for now"}
@@ -653,7 +746,15 @@ export function Dashboard({
           {onOpenHelp && <button onClick={onOpenHelp} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Help</button>}
           {onOpenProfile && <button onClick={onOpenProfile} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Profile</button>}
           {onConnectInverter && <button onClick={onConnectInverter} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Connect Inverter</button>}
-          {onSignOut && <button onClick={onSignOut} className="rounded-md border border-red-600/60 px-3 py-2 text-sm text-red-400 hover:bg-red-950/40">Sign out</button>}
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              disabled={signingOut}
+              className="rounded-md border border-red-600/60 px-3 py-2 text-sm text-red-400 hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {signingOut ? "Signing out…" : "Sign out"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -661,10 +762,14 @@ export function Dashboard({
         <WarningBanner message="This deployment is missing its database configuration (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY). Live data can't load until these are set in Vercel project settings." />
       )}
 
-      {queryError && (
+      {queryError && !isImpersonating && (
         <WarningBanner
           message={`Data temporarily unavailable: ${queryError}. You can still connect your system below — this is normal for new pilot households.`}
         />
+      )}
+
+      {impersonationDataNotice && (
+        <ImpersonationDataNotice message={impersonationDataNotice} />
       )}
 
       {household && (
@@ -819,6 +924,16 @@ export function Dashboard({
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-slate-400">Battery size</dt><dd>{household.battery_capacity_kwh != null ? `${household.battery_capacity_kwh} kWh` : "Not recorded yet"}</dd></div>
             <div><dt className="text-slate-400">Solar system size</dt><dd>{household.solar_kw != null ? `${household.solar_kw} kW` : "Not recorded yet"}</dd></div>
+            <div>
+              <dt className="text-slate-400">Supply phase</dt>
+              <dd>
+                {phaseCountLabel ? (
+                  <PhaseCountBadge phaseCount={household.phase_count} />
+                ) : (
+                  "Not recorded yet"
+                )}
+              </dd>
+            </div>
             <div><dt className="text-slate-400">Pilot consent</dt><dd>{household.consent_given ? "Confirmed" : "Still pending"}</dd></div>
             <div><dt className="text-slate-400">Notes</dt><dd>{household.onboarding_notes ?? "None"}</dd></div>
           </dl>

@@ -1,4 +1,12 @@
-﻿import { useState, useEffect } from "react";
+﻿/**
+ * Aussie Grid — usePilotHousehold hook
+ * File: src/hooks/usePilotHousehold.ts
+ * Version: v0.1.2.24
+ * Lines: 98
+ * Updated: 9 Jul 2026 — impersonation mode: missing registry row is empty state, not an error.
+ */
+import { useState, useEffect } from "react";
+import { isSupabaseNoRowsError } from "@/lib/impersonationDataStatus";
 import { supabase, queryTimeout } from "../lib/supabase";
 
 export interface PilotHousehold {
@@ -9,6 +17,7 @@ export interface PilotHousehold {
   inverter_make: string | null;
   battery_capacity_kwh: number | null;
   solar_kw: number | null;
+  phase_count?: number | null;
   consent_given: boolean;
   is_test: boolean;
   onboarding_notes?: string | null;
@@ -27,6 +36,17 @@ export interface PilotHousehold {
   agent_control_activated_at?: string | null;
 }
 
+export function formatPhaseCountLabel(phaseCount: number | null | undefined): string | null {
+  if (phaseCount === 1) return "Single Phase";
+  if (phaseCount === 3) return "3 Phase";
+  return null;
+}
+
+export interface UsePilotHouseholdOptions {
+  /** When true, a missing pilot_households row is treated as "no data yet" (admin impersonation). */
+  isImpersonating?: boolean;
+}
+
 interface UsePilotHouseholdResult {
   data: PilotHousehold | null;
   loading: boolean;
@@ -34,7 +54,11 @@ interface UsePilotHouseholdResult {
   refetch: () => void;
 }
 
-export function usePilotHousehold(householdId: string): UsePilotHouseholdResult {
+export function usePilotHousehold(
+  householdId: string,
+  options: UsePilotHouseholdOptions = {},
+): UsePilotHouseholdResult {
+  const { isImpersonating = false } = options;
   const [data, setData] = useState<PilotHousehold | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -49,11 +73,28 @@ export function usePilotHousehold(householdId: string): UsePilotHouseholdResult 
         .select("*")
         .eq("household_id", householdId)
         .abortSignal(queryTimeout())
-        .single();
+        .maybeSingle();
 
       if (queryError) throw queryError;
+
+      if (!row) {
+        // Admin impersonating a brand-new household: no registry row yet is expected.
+        if (isImpersonating) {
+          setData(null);
+          setError(null);
+          return;
+        }
+        throw new Error("Failed to load household");
+      }
+
       setData(row as PilotHousehold);
     } catch (err) {
+      // During impersonation, "no rows" from Supabase is not surfaced as a hard error.
+      if (isImpersonating && isSupabaseNoRowsError(err)) {
+        setData(null);
+        setError(null);
+        return;
+      }
       setError(err instanceof Error ? err : new Error("Failed to load household"));
     } finally {
       setLoading(false);
@@ -62,7 +103,8 @@ export function usePilotHousehold(householdId: string): UsePilotHouseholdResult 
 
   useEffect(() => {
     if (householdId) fetchHousehold();
-  }, [householdId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [householdId, isImpersonating]);
 
   return { data, loading, error, refetch: fetchHousehold };
 }

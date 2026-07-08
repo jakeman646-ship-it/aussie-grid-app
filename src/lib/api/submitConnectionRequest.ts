@@ -1,11 +1,9 @@
 /**
  * Aussie Grid — Connection request submit helper
  * File: src/lib/api/submitConnectionRequest.ts
- * Version: v0.1.2.17
- * Lines: 409
- * Updated: 7 Jul 2026 — fix submit timeout: drop redundant preflight query,
- *          raise mutation/submit timeouts, share one submit abort signal, and
- *          narrow duplicate follow-up to id-only select.
+ * Version: v0.1.2.18
+ * Lines: 410
+ * Updated: 8 Jul 2026 — persist phase_count (1 or 3) on insert and pending refresh.
  */
 import {
   getSupabaseConfigIssue,
@@ -21,6 +19,7 @@ export type InverterMake = "Sungrow" | "Tesla";
 export interface SubmitConnectionRequestInput {
   inverterMake: InverterMake;
   householdLabel: string;
+  phaseCount: 1 | 3;
   siteId: string;
   accountEmail: string;
   accountPassword?: string;
@@ -67,6 +66,7 @@ function buildPayload(
     site_id: input.siteId.trim(),
     account_email: input.accountEmail.trim().toLowerCase(),
     inverter_brand: input.inverterMake,
+    phase_count: input.phaseCount,
     status: "pending_review",
     requested_at: new Date().toISOString(),
   };
@@ -299,6 +299,7 @@ async function updatePendingRequest(
         site_id: payload.site_id,
         account_email: payload.account_email,
         inverter_brand: payload.inverter_brand,
+        phase_count: payload.phase_count,
         notes: payload.notes ?? null,
         inverter_serial: payload.inverter_serial ?? null,
         account_password: payload.account_password ?? null,

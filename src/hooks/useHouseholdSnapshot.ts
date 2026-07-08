@@ -1,7 +1,9 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.17
+ * Version: v0.1.2.24
+ * Lines: 175
+ * Updated: 9 Jul 2026 — impersonation mode: fetch failures degrade to empty snapshot, not errors.
  */
 import { useState, useEffect } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
@@ -27,6 +29,11 @@ export interface HouseholdSnapshot {
   data_quality_note: string;
 }
 
+interface UseHouseholdSnapshotOptions {
+  /** When true, query failures return an empty snapshot instead of blocking the dashboard. */
+  isImpersonating?: boolean;
+}
+
 interface UseHouseholdSnapshotResult {
   data: HouseholdSnapshot | null;
   loading: boolean;
@@ -34,7 +41,30 @@ interface UseHouseholdSnapshotResult {
   refetch: () => void;
 }
 
-export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotResult {
+/** Minimal snapshot for admin impersonation before telemetry exists. */
+function buildEmptySnapshot(householdId: string): HouseholdSnapshot {
+  return {
+    household_id: householdId,
+    mode: "self_consume",
+    reason: "Waiting for first telemetry readings",
+    battery_soc: 0,
+    solar_kw: 0,
+    grid_kw: 0,
+    consumption_kw: 0,
+    yesterday_savings_aud: null,
+    cumulative_savings_aud: null,
+    last_updated: new Date().toISOString(),
+    data_source: "no_data",
+    days_of_data: 0,
+    data_quality_note: "No readings yet — connect the inverter to start collecting data",
+  };
+}
+
+export function useHouseholdSnapshot(
+  householdId: string,
+  options: UseHouseholdSnapshotOptions = {},
+): UseHouseholdSnapshotResult {
+  const { isImpersonating = false } = options;
   const [data, setData] = useState<HouseholdSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -128,8 +158,14 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
       setData(snapshot);
     } catch (err) {
       console.error("useHouseholdSnapshot error:", err);
-      setError(err instanceof Error ? err : new Error("Failed to load household snapshot"));
-      setData(null);
+      // During admin impersonation, a failed snapshot fetch should not look like a broken dashboard.
+      if (isImpersonating) {
+        setData(buildEmptySnapshot(householdId));
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err : new Error("Failed to load household snapshot"));
+        setData(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -139,7 +175,8 @@ export function useHouseholdSnapshot(householdId: string): UseHouseholdSnapshotR
     if (householdId) {
       fetchSnapshot();
     }
-  }, [householdId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [householdId, isImpersonating]);
 
   return {
     data,

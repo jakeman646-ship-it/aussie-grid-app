@@ -1,12 +1,20 @@
 ﻿/**
  * Aussie Grid — App shell
  * File: src/App.tsx
- * Version: v0.1.2.17
- * Lines: 247
+ * Version: v0.1.2.24
+ * Lines: 290
+ * Updated: 8 Jul 2026 — auth gate + real sign-out via supabase.auth.signOut().
  */
-import { Component, Suspense, useState, useTransition, type ReactNode } from 'react';
+import { Component, Suspense, useEffect, useState, useTransition, type ReactNode } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { lazyWithReload } from './lib/lazyRetry';
-import { getCurrentHouseholdId, setCurrentHouseholdId } from './lib/currentHousehold';
+import {
+  clearCurrentHouseholdId,
+  getCurrentHouseholdId,
+  setCurrentHouseholdId,
+} from './lib/currentHousehold';
+import { supabase } from './lib/supabase';
+import Login from './components/Login';
 
 const Dashboard = lazyWithReload(() => import('./components/Dashboard'));
 const ConnectInverter = lazyWithReload(() => import('./components/ConnectInverter'));
@@ -80,14 +88,41 @@ class ViewErrorBoundary extends Component<ViewErrorBoundaryProps, ViewErrorBound
 type View = 'dashboard' | 'connect-inverter' | 'help' | 'profile' | 'change-password';
 
 export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const [view, setView] = useState<View>('dashboard');
   const [currentUserId, setCurrentUserId] = useState<string>(() => getCurrentHouseholdId());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   // Bumped to tell the Dashboard to refetch its data in place. This must NOT
   // be used as a React key: remounting the Dashboard threw away all loaded
   // data and pinned returning users on the full-screen loading state.
   const [dashboardRefresh, setDashboardRefresh] = useState(0);
   const [isNavigating, startNavigation] = useTransition();
+
+  // Track Supabase auth so sign-out can return the user to the login screen.
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      if (!mounted) return;
+      setSession(initialSession);
+      setAuthChecking(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setAuthChecking(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Transition-based navigation keeps the current page visible and the nav
   // clickable while the next view's chunk loads, instead of swapping the whole
@@ -100,8 +135,35 @@ export default function App() {
     });
   };
 
-  const handleSignOut = () => {
-    navigateTo('dashboard');
+  // Sign-out previously only navigated to dashboard; it never cleared Supabase auth.
+  const handleSignOut = async () => {
+    if (signingOut) return;
+
+    setSigningOut(true);
+    setSignOutError(null);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      // Reset dev household switcher and dashboard refresh state for the next login.
+      clearCurrentHouseholdId();
+      setCurrentUserId(getCurrentHouseholdId());
+      setDashboardRefresh(0);
+      setView('dashboard');
+      setMobileMenuOpen(false);
+
+      // Drop admin impersonation query param so it does not carry over after logout.
+      if (typeof window !== 'undefined' && window.location.search.includes('impersonate=')) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to sign out. Please try again.';
+      setSignOutError(message);
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const handleConnectInverter = () => {
@@ -128,6 +190,18 @@ export default function App() {
         ? 'bg-emerald-600 text-white'
         : 'text-slate-300 hover:bg-slate-800 hover:text-white'
     }`;
+
+  if (authChecking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Login />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -171,9 +245,10 @@ export default function App() {
             )}
             <button
               onClick={handleSignOut}
-              className="hidden md:block rounded-md border border-red-600/60 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950/40"
+              disabled={signingOut}
+              className="hidden md:block rounded-md border border-red-600/60 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Sign out
+              {signingOut ? 'Signing out…' : 'Sign out'}
             </button>
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -194,7 +269,16 @@ export default function App() {
               <button onClick={() => navigateTo('help')} className={`w-full text-left px-4 py-2.5 rounded-md text-sm ${view === 'help' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>Help</button>
               <button onClick={() => navigateTo('profile')} className={`w-full text-left px-4 py-2.5 rounded-md text-sm ${view === 'profile' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>Profile</button>
               <div className="pt-2 mt-2 border-t border-slate-800">
-                <button onClick={handleSignOut} className="w-full text-left px-4 py-2.5 rounded-md text-sm text-red-400 hover:bg-red-950/40">Sign out</button>
+                <button
+                  onClick={handleSignOut}
+                  disabled={signingOut}
+                  className="w-full text-left px-4 py-2.5 rounded-md text-sm text-red-400 hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {signingOut ? 'Signing out…' : 'Sign out'}
+                </button>
+                {signOutError && (
+                  <p className="px-4 pt-2 text-xs text-red-400">{signOutError}</p>
+                )}
               </div>
             </div>
           </div>
@@ -217,6 +301,7 @@ export default function App() {
                 onOpenProfile={() => navigateTo('profile')}
                 onOpenHelp={() => navigateTo('help')}
                 onSignOut={handleSignOut}
+                signingOut={signingOut}
                 onSwitchHousehold={handleSwitchHousehold}
               />
             </div>
@@ -232,7 +317,8 @@ export default function App() {
               <Profile
                 onBack={handleBackToDashboard}
                 onSignOut={handleSignOut}
-                onChangePassword={() => navigateTo('change-password')}
+                signingOut={signingOut}
+                signOutError={signOutError}
               />
             )}
             {view === 'change-password' && (

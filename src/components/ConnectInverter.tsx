@@ -1,10 +1,10 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.2.21
- * Lines: 604
- * Updated: 8 Jul 2026 — Sungrow iSolarCloud account password field (Tesla-style);
- *          saved to pilot_connection_requests.account_password on submit.
+ * Version: v0.1.2.22
+ * Lines: 640
+ * Updated: 8 Jul 2026 — required Supply Phase dropdown (Single / Three Phase);
+ *          saved as phase_count (1 or 3) to pilot_connection_requests on submit.
  */
 import { useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
@@ -27,14 +27,22 @@ export interface ConnectInverterProps {
   currentHouseholdId?: string;
 }
 
+type SupplyPhase = "1" | "3";
+
 interface FormData {
   householdLabel: string;
+  supplyPhase: SupplyPhase;
   accountEmail: string;
   accountPassword: string;
   siteId: string;
   inverterSerial: string;
   notes: string;
 }
+
+const SUPPLY_PHASE_OPTIONS: { value: SupplyPhase; label: string }[] = [
+  { value: "1", label: "Single Phase (230V)" },
+  { value: "3", label: "Three Phase (400V)" },
+];
 
 interface ConnectionStatus {
   status: "none" | "pending" | "connected";
@@ -100,6 +108,7 @@ export function ConnectInverter({
   const [inverterMake, setInverterMake] = useState<InverterMake>("Sungrow");
   const [formData, setFormData] = useState<FormData>({
     householdLabel: "",
+    supplyPhase: "1",
     accountEmail: "",
     accountPassword: "",
     siteId: "",
@@ -193,6 +202,10 @@ export function ConnectInverter({
   };
 
   const validateForm = (): boolean => {
+    if (formData.supplyPhase !== "1" && formData.supplyPhase !== "3") {
+      setError("Please select your supply phase (Single Phase or Three Phase).");
+      return false;
+    }
     if (!formData.siteId.trim()) {
       setError(
         inverterMake === "Tesla"
@@ -236,6 +249,7 @@ export function ConnectInverter({
       const result = await submitConnectionRequest({
         inverterMake,
         householdLabel: formData.householdLabel,
+        phaseCount: Number(formData.supplyPhase) as 1 | 3,
         siteId: formData.siteId,
         accountEmail: formData.accountEmail,
         accountPassword: formData.accountPassword,
@@ -273,6 +287,7 @@ export function ConnectInverter({
   const resetForm = () => {
     setFormData({
       householdLabel: "",
+      supplyPhase: "1",
       accountEmail: "",
       accountPassword: "",
       siteId: "",
@@ -443,6 +458,27 @@ export function ConnectInverter({
                     placeholder="e.g. Jack's Place or 12 Davlyn Dr"
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                   />
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                    Supply Phase <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    value={formData.supplyPhase}
+                    onChange={(e) => handleInputChange("supplyPhase", e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm focus:border-emerald-500 focus:outline-none"
+                    required
+                  >
+                    {SUPPLY_PHASE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Your grid connection type — check your electricity bill or meter box if unsure.
+                  </p>
                 </div>
 
                 <div>

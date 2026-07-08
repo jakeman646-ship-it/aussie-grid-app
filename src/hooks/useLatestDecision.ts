@@ -1,6 +1,18 @@
+/**
+ * Aussie Grid — useLatestDecision hook
+ * File: src/hooks/useLatestDecision.ts
+ * Version: v0.1.2.24
+ * Lines: 88
+ * Updated: 9 Jul 2026 — impersonation mode: missing decision is normal, not an error.
+ */
 import { useState, useEffect } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
 import type { AgentDecision } from "@/types/agentDecision";
+
+interface UseLatestDecisionOptions {
+  /** When true, fetch failures are ignored — no agent decision yet is expected. */
+  isImpersonating?: boolean;
+}
 
 interface UseLatestDecisionResult {
   data: AgentDecision | null;
@@ -9,7 +21,11 @@ interface UseLatestDecisionResult {
   refetch: () => void;
 }
 
-export function useLatestDecision(householdId: string): UseLatestDecisionResult {
+export function useLatestDecision(
+  householdId: string,
+  options: UseLatestDecisionOptions = {},
+): UseLatestDecisionResult {
+  const { isImpersonating = false } = options;
   const [data, setData] = useState<AgentDecision | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -62,7 +78,13 @@ export function useLatestDecision(householdId: string): UseLatestDecisionResult 
         setData(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("Failed to load decision"));
+      // No agent decision yet is normal for new households during admin impersonation.
+      if (isImpersonating) {
+        setData(null);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err : new Error("Failed to load decision"));
+      }
     } finally {
       setLoading(false);
     }
@@ -70,7 +92,8 @@ export function useLatestDecision(householdId: string): UseLatestDecisionResult 
 
   useEffect(() => {
     if (householdId) fetchDecision();
-  }, [householdId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [householdId, isImpersonating]);
 
   return { data, loading, error, refetch: fetchDecision };
 }
