@@ -1,15 +1,14 @@
 /**
  * Aussie Grid — Connection Requests (internal review)
  * File: src/components/Requests.tsx
- * Version: v0.1.2.20
- * Lines: 350
- * Updated: 7 Jul 2026 — fix approve: transfer site_id → sungrow_plant_id and
- *          inverter_serial; promote is_test → false via shared approve helper.
+ * Version: v0.1.2.25
+ * Updated: 11 Jul 2026 — approve/reject via backend API (no anon UPDATE after RLS).
  */
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   approveConnectionRequest,
+  rejectConnectionRequest,
   getTeslaMissingFields,
   type ConnectionRequestRow,
 } from '@/lib/api/approveConnectionRequest';
@@ -37,9 +36,10 @@ export function Requests({ onBack }: RequestsProps) {
     setLoading(true);
     setError(null);
 
+    // Safe columns only — account_password is revoked for anon/authenticated (harden_connection_rls.sql v1.1)
     const { data, error: fetchError } = await supabase
       .from('pilot_connection_requests')
-      .select('id, household_id, site_id, account_email, account_password, inverter_brand, inverter_serial, notes, status, requested_at')
+      .select('id, household_id, site_id, account_email, inverter_brand, inverter_serial, notes, status, requested_at, phase_count')
       .eq('status', 'pending_review')
       .order('requested_at', { ascending: false });
 
@@ -93,26 +93,13 @@ export function Requests({ onBack }: RequestsProps) {
     setError(null);
 
     try {
-      const finalNotes = rejectReason.trim()
-        ? `${req.notes || ''}\n\n[Rejected] ${rejectReason.trim()}`
-        : req.notes;
-
-      const { error: updateError } = await supabase
-        .from('pilot_connection_requests')
-        .update({
-          status: 'rejected',
-          notes: finalNotes || null,
-        })
-        .eq('id', req.id);
-
-      if (updateError) throw updateError;
-
+      await rejectConnectionRequest(req, { reason: rejectReason });
       setSuccessMessage(`Request for ${req.household_id} has been rejected.`);
       closeModal();
       await fetchPendingRequests();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Reject error:', err);
-      setError(err.message || 'Failed to reject request.');
+      setError(err instanceof Error ? err.message : 'Failed to reject request.');
     } finally {
       setIsProcessing(false);
     }
@@ -268,13 +255,6 @@ export function Requests({ onBack }: RequestsProps) {
                   </div>
                 </div>
               </div>
-
-              {selectedRequest.inverter_brand === 'Tesla' && selectedRequest.account_password && (
-                <div>
-                  <div className="text-xs uppercase tracking-widest text-slate-500">Tesla Account Password</div>
-                  <div className="mt-0.5 font-mono text-amber-300">{selectedRequest.account_password}</div>
-                </div>
-              )}
 
               {selectedRequest.notes && (
                 <div>

@@ -21,13 +21,14 @@ export interface PilotHousehold {
   consent_given: boolean;
   is_test: boolean;
   onboarding_notes?: string | null;
-  // Sungrow connection fields
+  community_id?: string | null;
+  // Sungrow connection fields (keys/tokens are not selected — RLS-safe columns only)
   sungrow_app_key?: string | null;
   sungrow_access_key?: string | null;
   sungrow_plant_id?: string | null;
   sungrow_connected_at?: string | null;
   inverter_serial?: string | null;
-  // Tesla connection fields
+  // Tesla connection fields (password/email secrets are not selected)
   tesla_site_id?: string | null;
   tesla_connected_at?: string | null;
   tesla_account_email?: string | null;
@@ -68,9 +69,31 @@ export function usePilotHousehold(
     setError(null);
 
     try {
+      // Explicit safe columns only — select("*") fails after harden_connection_rls.sql v1.1
+      // (passwords/tokens/keys are not granted to anon/authenticated).
       const { data: row, error: queryError } = await supabase
         .from("pilot_households")
-        .select("*")
+        .select(
+          [
+            "household_id",
+            "email",
+            "status",
+            "inverter_make",
+            "battery_capacity_kwh",
+            "solar_kw",
+            "phase_count",
+            "consent_given",
+            "is_test",
+            "sungrow_plant_id",
+            "sungrow_connected_at",
+            "inverter_serial",
+            "tesla_site_id",
+            "tesla_connected_at",
+            "agent_control_mode",
+            "agent_control_activated_at",
+            "community_id",
+          ].join(", ")
+        )
         .eq("household_id", householdId)
         .abortSignal(queryTimeout())
         .maybeSingle();
