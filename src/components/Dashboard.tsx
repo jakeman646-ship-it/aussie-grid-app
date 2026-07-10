@@ -935,7 +935,6 @@ export function Dashboard({
               </dd>
             </div>
             <div><dt className="text-slate-400">Pilot consent</dt><dd>{household.consent_given ? "Confirmed" : "Still pending"}</dd></div>
-            <div><dt className="text-slate-400">Notes</dt><dd>{household.onboarding_notes ?? "None"}</dd></div>
           </dl>
         </section>
       )}
