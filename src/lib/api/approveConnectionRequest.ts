@@ -1,12 +1,11 @@
 /**
- * Aussie Grid — Connection request approval helper
+ * Aussie Grid — Connection request approve/reject API
  * File: src/lib/api/approveConnectionRequest.ts
- * Version: v0.1.2.20
- * Lines: 122
- * Updated: 7 Jul 2026 — transfer Sungrow site_id → sungrow_plant_id and
- *          inverter_serial; promote is_test → false on approve.
+ * Version: v0.1.2.25
+ * Updated: 11 Jul 2026 — route approve/reject through backend (service_role);
+ *          anon client must not UPDATE pilot_connection_requests / pilot_households
+ *          after harden_connection_rls.sql v1.1.
  */
-import { supabase } from "@/lib/supabase";
 
 export interface ConnectionRequestRow {
   id: string;
@@ -19,104 +18,91 @@ export interface ConnectionRequestRow {
   notes?: string | null;
 }
 
+export type ApproveConnectionAction = "added" | "updated";
+
+function apiBaseUrl(): string {
+  const base = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+  if (!base) {
+    throw new Error(
+      "VITE_API_URL is not set. Approve/reject must go through the backend after RLS hardening."
+    );
+  }
+  return base.replace(/\/$/, "");
+}
+
+async function postConnectionRequestAction(
+  requestId: string,
+  action: "approve" | "reject",
+  body?: Record<string, unknown>
+): Promise<Response> {
+  return fetch(`${apiBaseUrl()}/connection-requests/${requestId}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = (await res.json()) as { detail?: string; message?: string };
+    if (typeof data.detail === "string" && data.detail.trim()) return data.detail;
+    if (typeof data.message === "string" && data.message.trim()) return data.message;
+  } catch {
+    // ignore non-JSON error bodies
+  }
+  return `${fallback} (${res.status})`;
+}
+
 export function getTeslaMissingFields(req: ConnectionRequestRow): string[] {
   const missing: string[] = [];
   if (!req.site_id?.trim()) missing.push("Energy Site ID");
   if (!req.account_email?.trim()) missing.push("Tesla account email");
-  if (!req.account_password?.trim()) missing.push("Tesla account password");
+  // account_password is not readable via anon/authenticated after harden_connection_rls.sql;
+  // credential transfer must use service_role (backend / CEO dashboard).
   return missing;
 }
 
-export function buildHouseholdPayloadFromRequest(
-  req: ConnectionRequestRow,
-  options: { promoteToReal?: boolean; onboardingNotes?: string } = {}
-): Record<string, unknown> {
-  const { promoteToReal = true, onboardingNotes } = options;
-  const isTesla = (req.inverter_brand || "").trim().toLowerCase() === "tesla";
-  const make = req.inverter_brand || "Sungrow";
-  const now = new Date().toISOString();
-
-  const payload: Record<string, unknown> = {
-    household_id: req.household_id,
-    email: req.account_email,
-    status: "active",
-    inverter_make: make,
-    consent_given: true,
-    updated_at: now,
-    onboarding_notes: onboardingNotes ?? req.notes ?? "Approved via Requests page",
-  };
-
-  if (promoteToReal) {
-    payload.is_test = false;
-  }
-
-  if (isTesla) {
-    Object.assign(payload, {
-      tesla_site_id: req.site_id?.trim() || null,
-      tesla_connected_at: now,
-      tesla_account_email: req.account_email,
-      tesla_account_password: req.account_password,
-    });
-  } else {
-    const serial = req.inverter_serial?.trim();
-    Object.assign(payload, {
-      sungrow_plant_id: req.site_id?.trim() || null,
-      sungrow_connected_at: now,
-      ...(serial ? { inverter_serial: serial } : {}),
-    });
-  }
-
-  return payload;
-}
-
+/**
+ * Approve a pending connection request via the backend (service_role).
+ * Expected endpoint: POST /connection-requests/:id/approve
+ */
 export async function approveConnectionRequest(
   req: ConnectionRequestRow,
   options: { promoteToReal?: boolean } = {}
-): Promise<"added" | "updated"> {
-  const householdPayload = buildHouseholdPayloadFromRequest(req, options);
+): Promise<ApproveConnectionAction> {
+  const { promoteToReal = true } = options;
+  const res = await postConnectionRequestAction(req.id, "approve", {
+    promote_to_real: promoteToReal,
+  });
 
-  const { data: existing } = await supabase
-    .from("pilot_households")
-    .select("household_id")
-    .eq("household_id", req.household_id)
-    .maybeSingle();
-
-  const writeHousehold = async (payload: Record<string, unknown>) => {
-    if (existing) {
-      const { error } = await supabase
-        .from("pilot_households")
-        .update(payload)
-        .eq("household_id", req.household_id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from("pilot_households").insert(payload);
-      if (error) throw error;
-    }
-  };
-
-  try {
-    await writeHousehold(householdPayload);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (
-      "inverter_serial" in householdPayload &&
-      (msg.includes("inverter_serial") || msg.includes("PGRST204"))
-    ) {
-      const { inverter_serial: _serial, ...withoutSerial } = householdPayload;
-      console.warn(
-        "pilot_households.inverter_serial column missing — run scripts/sungrow_connection_columns.sql"
-      );
-      await writeHousehold(withoutSerial);
-    } else {
-      throw err;
-    }
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "Failed to approve request"));
   }
 
-  const { error: reqError } = await supabase
-    .from("pilot_connection_requests")
-    .update({ status: "approved" })
-    .eq("id", req.id);
-  if (reqError) throw reqError;
+  try {
+    const data = (await res.json()) as { action?: ApproveConnectionAction };
+    if (data.action === "added" || data.action === "updated") return data.action;
+  } catch {
+    // Backend may return an empty body; treat as successful update.
+  }
+  return "updated";
+}
 
-  return existing ? "updated" : "added";
+/**
+ * Reject a pending connection request via the backend (service_role).
+ * Expected endpoint: POST /connection-requests/:id/reject
+ * Body: { reason?: string }
+ */
+export async function rejectConnectionRequest(
+  req: ConnectionRequestRow,
+  options: { reason?: string } = {}
+): Promise<void> {
+  const reason = options.reason?.trim() || undefined;
+  const res = await postConnectionRequestAction(req.id, "reject", {
+    reason: reason ?? null,
+  });
+
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "Failed to reject request"));
+  }
 }
