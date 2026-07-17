@@ -1,9 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.25
- * Lines: 940
- * Updated: 9 Jul 2026 — Stop Impersonating control on admin banner.
+ * Version: v0.1.2.31
+ * Updated: 18 Jul 2026 — Energy Systems Overview glance strip above section.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -60,6 +59,10 @@ import type { Mode } from "@/types/mode";
 import { pilotPhaseLabel } from "@/types/pilotConfig";
 import { type AgentControlMode, isAgentControlActive } from "@/types/agentControl";
 import { AgentControlBanner } from "@/components/AgentControlBanner";
+import {
+  ConnectionHealthSummary,
+  EnergySystemsSection,
+} from "@/components/energySystem";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
 import { getImpersonationDataNotice } from "@/lib/impersonationDataStatus";
 import { useState, useEffect, useRef } from "react";
@@ -358,6 +361,7 @@ function NextStepsSection({
 }
 
 const DEV_TEST_HOUSEHOLDS = [
+  { id: "mm-electrical", label: "MM Electrical (Sigenergy commercial)" },
   { id: "sungrow-test-001", label: "Sungrow Test 001" },
   { id: "tesla-test-pilot-001", label: "Tesla Test Pilot 001" },
   { id: "mackay-pilot-01", label: "Mackay Pilot 01 (Sungrow connected)" },
@@ -809,6 +813,18 @@ export function Dashboard({
       )}
 
       {effectivePending && <PendingRequestBanner />}
+
+      {/* Connection Health glance + Energy Systems section (OEM cards unchanged). */}
+      <div className="space-y-3">
+        <ConnectionHealthSummary
+          householdId={householdId}
+          inverterMake={household?.inverter_make}
+        />
+        <EnergySystemsSection
+          householdId={householdId}
+          inverterMake={household?.inverter_make}
+        />
+      </div>
 
       <AgentControlBanner
         householdId={householdId}
