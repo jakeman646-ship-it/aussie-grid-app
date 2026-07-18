@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.31
- * Updated: 18 Jul 2026 — Energy Systems Overview glance strip above section.
+ * Version: v0.1.2.32
+ * Updated: 19 Jul 2026 — impersonation uses customerFacing energy-system UI.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -728,16 +728,31 @@ export function Dashboard({
           </p>
           {household && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <p className="text-sm text-slate-300">
-                {household.household_id}{household.is_test ? " · test home" : ""} · {household.status}{household.inverter_make ? ` · ${household.inverter_make}` : ""}
-              </p>
+              {isImpersonating ? (
+                <p className="text-sm text-slate-300">
+                  {[
+                    household.inverter_make || null,
+                    householdConnected ? "Connected" : effectivePending ? "Connection pending" : "Not connected yet",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              ) : (
+                <p className="text-sm text-slate-300">
+                  {household.household_id}
+                  {household.is_test ? " · test home" : ""} · {household.status}
+                  {household.inverter_make ? ` · ${household.inverter_make}` : ""}
+                </p>
+              )}
               <PhaseCountBadge phaseCount={household.phase_count} />
             </div>
           )}
         </div>
 
         <div className="flex items-center gap-3">
-          <DevHouseholdSwitcher currentId={effectiveHouseholdId} onSwitch={onSwitchHousehold} />
+          {!isImpersonating && (
+            <DevHouseholdSwitcher currentId={effectiveHouseholdId} onSwitch={onSwitchHousehold} />
+          )}
 
           <span className={`rounded-full px-3 py-1 text-xs font-medium ${isLiveData ? "bg-emerald-900/60 text-emerald-300" : "bg-amber-900/40 text-amber-200"}`}>
             {isLiveData ? "Live data" : "Sample data for now"}
@@ -814,15 +829,17 @@ export function Dashboard({
 
       {effectivePending && <PendingRequestBanner />}
 
-      {/* Connection Health glance + Energy Systems section (OEM cards unchanged). */}
+      {/* Connection Health + Energy Systems (customerFacing when impersonating). */}
       <div className="space-y-3">
         <ConnectionHealthSummary
           householdId={householdId}
           inverterMake={household?.inverter_make}
+          customerFacing={isImpersonating}
         />
         <EnergySystemsSection
           householdId={householdId}
           inverterMake={household?.inverter_make}
+          customerFacing={isImpersonating}
         />
       </div>
 
@@ -908,7 +925,12 @@ export function Dashboard({
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">How confident</dt><dd>{formatConfidence(decision.confidence ?? 0)}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">Safety check</dt><dd>{decision.verification_passed ? "Passed" : "Adjusted for safety"}{decision.severity && !decision.verification_passed ? ` (${decision.severity})` : ""}</dd></div>
                 {decision.harmony_recommendation && <div className="flex justify-between gap-4"><dt className="text-slate-400">Coordinated with other homes</dt><dd>{formatHarmonyDetail(decision.harmony_recommendation)}{harmonyInfluenced ? " · affected today's mode" : ""}</dd></div>}
-                <div><dt className="text-slate-400">Technical note</dt><dd className="mt-1 text-slate-200">{decision.reason}</dd></div>
+                {!isImpersonating && (
+                  <div>
+                    <dt className="text-slate-400">Technical note</dt>
+                    <dd className="mt-1 text-slate-200">{decision.reason}</dd>
+                  </div>
+                )}
               </dl>
             </>
           ) : (
@@ -955,7 +977,7 @@ export function Dashboard({
         </section>
       )}
 
-      <AppVersionFooter />
+      {!isImpersonating && <AppVersionFooter />}
     </div>
   );
 }

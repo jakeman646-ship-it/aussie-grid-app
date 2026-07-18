@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Energy Systems section (Dashboard overview)
  * File: src/components/energySystem/EnergySystemsSection.tsx
- * Version: v0.9.1
- * Updated: 18 Jul 2026 — last ingest key metrics in always-visible header
+ * Version: v0.10.0
+ * Updated: 19 Jul 2026 — customerFacing mode hides ops stubs / dry-run tooling
  *
  * Clean household overview wrapper for OEM status adapters.
  * Mounts Sigenergy today; Sungrow stub (and future Tesla) sit beside it
@@ -10,7 +10,7 @@
  *
  * Read-only / monitoring only — never invents "connected".
  * Quick actions call dry-run validate only (no writes / no control).
- * OEM adapter components are unchanged.
+ * `customerFacing` (admin impersonation) hides stubs, docs, and dry-run tools.
  */
 import { useMemo, useState } from "react";
 import { SigenergyConnectionStatus } from "@/components/SigenergyConnectionStatus";
@@ -40,7 +40,7 @@ import { EnergySystemsEmptyState } from "./EnergySystemsEmptyState";
 
 export type EnergySystemsSectionProps = Pick<
   EnergySystemStatusBaseProps,
-  "householdId" | "inverterMake"
+  "householdId" | "inverterMake" | "customerFacing"
 >;
 
 /** Per-OEM chip after a section-level validation run (dry-run only). */
@@ -103,9 +103,24 @@ function formatSummaryTitle(summary: OverviewSummary): string {
   return `Energy Systems (${summary.connected} connected)`;
 }
 
-function formatSummaryDetail(summary: OverviewSummary): string {
+function formatSummaryDetail(
+  summary: OverviewSummary,
+  customerFacing = false,
+): string {
   if (summary.checking) {
     return "Checking linked systems…";
+  }
+  if (customerFacing) {
+    if (summary.visible === 0 || summary.configured === 0) {
+      return "Connect your inverter to see live connection status here.";
+    }
+    if (summary.mixed) {
+      return "Some systems still need data before we can show full status.";
+    }
+    if (summary.connected > 0) {
+      return "Live data is flowing for your linked system. Monitoring only — not agent control.";
+    }
+    return "Waiting for the first successful data pull before we mark you connected.";
   }
   if (summary.visible === 0) {
     return "No linked OEM for this household yet — expand for setup guidance (Sigenergy today).";
@@ -227,6 +242,7 @@ function buildValidationTargets(opts: {
 export function EnergySystemsSection({
   householdId,
   inverterMake = null,
+  customerFacing = false,
 }: EnergySystemsSectionProps) {
   const {
     status: sigenergyStatus,
@@ -257,17 +273,23 @@ export function EnergySystemsSection({
   const validatableTargets = validationTargets.filter((t) => t.canValidate);
   const validatableCount = validatableTargets.length;
 
-  const title = formatSummaryTitle(summary);
-  const detail = formatSummaryDetail(summary);
+  const title = customerFacing
+    ? summary.connected > 0
+      ? "Your energy system"
+      : "Energy system"
+    : formatSummaryTitle(summary);
+  const detail = formatSummaryDetail(summary, customerFacing);
   const overallStyle = ENERGY_SYSTEM_STATUS_STYLES[summary.overall];
   const overallBadge = resolveOverallBadge(summary);
 
   // Prefer last successful pull timestamp; fall back to summary updated_at from lastIngest.
   const lastIngestAt = lastSuccessAt || lastIngest?.updatedAt || null;
   const lastIngestHeaderLabel = sigenergyLoading
-    ? "Last ingest: …"
+    ? customerFacing
+      ? "Last updated: …"
+      : "Last ingest: …"
     : lastIngestAt
-      ? `Last ingest: ${formatEnergyTimestamp(lastIngestAt)}`
+      ? `${customerFacing ? "Last updated" : "Last ingest"}: ${formatEnergyTimestamp(lastIngestAt)}`
       : "No recent data";
 
   const [expanded, setExpanded] = useState(true);
@@ -491,8 +513,8 @@ export function EnergySystemsSection({
           </div>
         </div>
 
-        {/* Compact count strip — always visible; accent non-zero buckets when mixed */}
-        {summary.visible > 0 && !summary.checking ? (
+        {/* Compact count strip — ops view only (hidden when impersonating) */}
+        {!customerFacing && summary.visible > 0 && !summary.checking ? (
           <dl className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-700/50 pt-3 sm:max-w-md">
             <div
               className={`rounded-md px-2.5 py-2 ${
@@ -538,8 +560,12 @@ export function EnergySystemsSection({
 
         {!expanded && (
           <p className="mt-3 text-[11px] text-slate-500">
-            Collapsed — expand for full day totals, OEM cards, and dry-run validation.
-            {validating ? " Validation still running in the background." : ""}
+            {customerFacing
+              ? "Collapsed — expand for connection details and recent energy totals."
+              : "Collapsed — expand for full day totals, OEM cards, and dry-run validation."}
+            {!customerFacing && validating
+              ? " Validation still running in the background."
+              : ""}
           </p>
         )}
       </header>
@@ -547,109 +573,114 @@ export function EnergySystemsSection({
       {/* Details panel — quick actions + OEM cards (hidden when collapsed) */}
       {expanded && (
         <div id="energy-systems-panel">
-          <div className="border-b border-slate-700/50 bg-slate-950/20 px-4 py-3 sm:px-5">
-            {/* Quick actions — dry-run only; does not alter OEM cards */}
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="mr-auto text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                Quick actions
-              </p>
-              <button
-                type="button"
-                onClick={() => void handleValidateAllConfigured()}
-                disabled={validateDisabled}
-                title={validateTitle}
-                aria-label="Run Validation for configured energy systems"
-                className="rounded-lg bg-emerald-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {primaryLabel}
-              </button>
-              {validatableCount > 0 && (
+          {!customerFacing && (
+            <div className="border-b border-slate-700/50 bg-slate-950/20 px-4 py-3 sm:px-5">
+              {/* Quick actions — dry-run only; does not alter OEM cards */}
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="mr-auto text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  Quick actions
+                </p>
                 <button
                   type="button"
                   onClick={() => void handleValidateAllConfigured()}
                   disabled={validateDisabled}
-                  title="Same dry-run path — runs every OEM that supports validation"
-                  className="rounded-lg border border-slate-500 bg-slate-800/60 px-3.5 py-1.5 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  title={validateTitle}
+                  aria-label="Run Validation for configured energy systems"
+                  className="rounded-lg bg-emerald-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Validate All Configured
-                  {validatableCount > 1 ? ` (${validatableCount})` : ""}
+                  {primaryLabel}
                 </button>
+                {validatableCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void handleValidateAllConfigured()}
+                    disabled={validateDisabled}
+                    title="Same dry-run path — runs every OEM that supports validation"
+                    className="rounded-lg border border-slate-500 bg-slate-800/60 px-3.5 py-1.5 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Validate All Configured
+                    {validatableCount > 1 ? ` (${validatableCount})` : ""}
+                  </button>
+                )}
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Dry-run only (no writes, no control). Results show as per-system chips. Sigenergy
+                validates today; Sungrow / Tesla show Skipped until their dry-run path exists.
+              </p>
+
+              {validating && (
+                <div
+                  className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-sky-700/40 bg-sky-950/25 px-3 py-2 text-xs text-sky-100"
+                  role="status"
+                >
+                  <span
+                    className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-400"
+                    aria-hidden
+                  />
+                  <span>
+                    {activeOemLabel
+                      ? `Validating ${activeOemLabel} (auth + history, up to ~90s)…`
+                      : "Starting dry-run validation…"}
+                  </span>
+                  <span className="text-sky-300/70">
+                    {validatableCount} configured · {validationTargets.length} listed
+                  </span>
+                </div>
+              )}
+
+              {validationFeedback && validationFeedback.length > 0 && (
+                <div className="mt-3" role="status">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Per-system results
+                  </p>
+                  <ul className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                    {validationFeedback.map((item) => {
+                      const badge = VERDICT_BADGE[item.verdict];
+                      return (
+                        <li
+                          key={item.oemId}
+                          className="flex min-w-[12rem] flex-1 flex-wrap items-start justify-between gap-2 rounded-md border border-slate-700/50 bg-slate-950/40 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-slate-200">{item.oemLabel}</p>
+                            <p className="mt-0.5 text-xs leading-relaxed text-slate-400">
+                              {item.message}
+                            </p>
+                          </div>
+                          <span
+                            className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badge.className} ${
+                              item.verdict === "pending" ? "animate-pulse" : ""
+                            }`}
+                          >
+                            {badge.label}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+
+              {validationError && !validating && (
+                <p className="mt-2 text-xs text-rose-300/90" role="alert">
+                  {validationError}
+                </p>
               )}
             </div>
-            <p className="mt-1.5 text-[11px] text-slate-500">
-              Dry-run only (no writes, no control). Results show as per-system chips. Sigenergy
-              validates today; Sungrow / Tesla show Skipped until their dry-run path exists.
-            </p>
-
-            {validating && (
-              <div
-                className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-sky-700/40 bg-sky-950/25 px-3 py-2 text-xs text-sky-100"
-                role="status"
-              >
-                <span
-                  className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-400"
-                  aria-hidden
-                />
-                <span>
-                  {activeOemLabel
-                    ? `Validating ${activeOemLabel} (auth + history, up to ~90s)…`
-                    : "Starting dry-run validation…"}
-                </span>
-                <span className="text-sky-300/70">
-                  {validatableCount} configured · {validationTargets.length} listed
-                </span>
-              </div>
-            )}
-
-            {validationFeedback && validationFeedback.length > 0 && (
-              <div className="mt-3" role="status">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  Per-system results
-                </p>
-                <ul className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                  {validationFeedback.map((item) => {
-                    const badge = VERDICT_BADGE[item.verdict];
-                    return (
-                      <li
-                        key={item.oemId}
-                        className="flex min-w-[12rem] flex-1 flex-wrap items-start justify-between gap-2 rounded-md border border-slate-700/50 bg-slate-950/40 px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-slate-200">{item.oemLabel}</p>
-                          <p className="mt-0.5 text-xs leading-relaxed text-slate-400">
-                            {item.message}
-                          </p>
-                        </div>
-                        <span
-                          className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badge.className} ${
-                            item.verdict === "pending" ? "animate-pulse" : ""
-                          }`}
-                        >
-                          {badge.label}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-
-            {validationError && !validating && (
-              <p className="mt-2 text-xs text-rose-300/90" role="alert">
-                {validationError}
-              </p>
-            )}
-          </div>
+          )}
 
           {/* Last successful day totals — read-only; from status hook */}
           <div className="border-b border-slate-700/50 bg-slate-950/25 px-4 py-3 sm:px-5">
             <LastIngestSummary lastIngest={lastIngest} loading={sigenergyLoading} />
           </div>
 
-          {/* OEM cards — unchanged adapters; consistent stack spacing */}
+          {/* OEM cards — adapters; customerFacing hides stubs / ops tooling */}
           <div className="space-y-3 bg-slate-950/30 p-3 sm:p-4">
             {showEmptyGuidance && (
-              <EnergySystemsEmptyState variant={emptyVariant} />
+              <EnergySystemsEmptyState
+                variant={emptyVariant}
+                customerFacing={customerFacing}
+              />
             )}
 
             <div className="space-y-3">
@@ -657,12 +688,15 @@ export function EnergySystemsSection({
                 householdId={householdId}
                 variant="overview"
                 inverterMake={inverterMake}
+                customerFacing={customerFacing}
               />
-              <SungrowConnectionStatus
-                householdId={householdId}
-                variant="overview"
-                inverterMake={inverterMake}
-              />
+              {!customerFacing && (
+                <SungrowConnectionStatus
+                  householdId={householdId}
+                  variant="overview"
+                  inverterMake={inverterMake}
+                />
+              )}
               {/* Future: <TeslaConnectionStatus householdId={...} variant="overview" ... /> */}
             </div>
           </div>

@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Energy system status (shared types)
  * File: src/types/energySystemStatus.ts
- * Version: v0.1.0
- * Updated: 18 Jul 2026
+ * Version: v0.1.1
+ * Updated: 19 Jul 2026 — customerFacing prop for impersonation UI
  *
  * Common vocabulary for OEM status cards (Sigenergy today; Sungrow / Tesla later).
  * Keep connection language honest: never invent "connected" without a usable data pull.
@@ -55,4 +55,9 @@ export interface EnergySystemStatusBaseProps {
   variant?: EnergySystemStatusVariant;
   /** Household inverter_make from parent — used for overview hide/show. */
   inverterMake?: string | null;
+  /**
+   * When true (e.g. admin ?impersonate=), hide ops stubs, CLI, dry-run tools,
+   * and internal doc links — show a clean household-facing status experience.
+   */
+  customerFacing?: boolean;
 }

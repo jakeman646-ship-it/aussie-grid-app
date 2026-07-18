@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Connection Health summary (Dashboard)
  * File: src/components/energySystem/ConnectionHealthSummary.tsx
- * Version: v0.1.0
- * Updated: 18 Jul 2026
+ * Version: v0.2.0
+ * Updated: 19 Jul 2026 — customerFacing copy for impersonation
  *
  * Compact top-level glance above EnergySystemsSection.
  * Read-only — no writes, no control, never invents "connected".
@@ -14,7 +14,7 @@ import { buildEnergySystemsOverviewSummary } from "./overviewSummary";
 
 export type ConnectionHealthSummaryProps = Pick<
   EnergySystemStatusBaseProps,
-  "householdId" | "inverterMake"
+  "householdId" | "inverterMake" | "customerFacing"
 >;
 
 /**
@@ -23,6 +23,7 @@ export type ConnectionHealthSummaryProps = Pick<
 export function ConnectionHealthSummary({
   householdId,
   inverterMake = null,
+  customerFacing = false,
 }: ConnectionHealthSummaryProps) {
   const {
     status: sigenergyStatus,
@@ -80,14 +81,20 @@ export function ConnectionHealthSummary({
             <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-500/90">
               Connection Health
             </p>
-            <p className="mt-1 text-sm text-slate-300">No energy systems listed for this household</p>
+            <p className="mt-1 text-sm text-slate-300">
+              {customerFacing
+                ? "No energy system connected yet"
+                : "No energy systems listed for this household"}
+            </p>
             <p className="mt-0.5 text-xs text-slate-500">
-              Expand Energy Systems below for setup guidance · monitoring only
+              {customerFacing
+                ? "Connect your inverter to see live status here · monitoring only"
+                : "Expand Energy Systems below for setup guidance · monitoring only"}
             </p>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-800 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 ring-1 ring-slate-600/50">
             <span className="h-1.5 w-1.5 rounded-full bg-slate-500" aria-hidden />
-            Not configured
+            {customerFacing ? "Not connected" : "Not configured"}
           </span>
         </div>
       </div>

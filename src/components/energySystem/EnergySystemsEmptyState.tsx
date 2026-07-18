@@ -1,19 +1,48 @@
 /**
  * Aussie Grid — Energy Systems empty / not-configured guidance
  * File: src/components/energySystem/EnergySystemsEmptyState.tsx
- * Version: v0.1.0
- * Updated: 18 Jul 2026
+ * Version: v0.2.0
+ * Updated: 19 Jul 2026 — customerFacing copy for admin impersonation
  *
  * Read-only helper shown when the household has no configured energy system
  * with a usable data path. Non-intrusive; no writes or control.
  */
 export function EnergySystemsEmptyState({
   variant = "full",
+  customerFacing = false,
 }: {
   /** `full` = no OEM cards; `compact` = OEM strips present but none configured */
   variant?: "full" | "compact";
+  /** Hide ops/docs language (admin impersonation / household demo). */
+  customerFacing?: boolean;
 }) {
   const isFull = variant === "full";
+
+  if (customerFacing) {
+    return (
+      <div
+        role="status"
+        className={
+          isFull
+            ? "rounded-lg border border-dashed border-slate-600/70 bg-slate-900/50 px-4 py-5"
+            : "rounded-lg border border-slate-700/50 bg-slate-950/40 px-3.5 py-3"
+        }
+      >
+        <p className="text-sm font-semibold text-slate-200">
+          {isFull ? "No energy system connected yet" : "System not ready yet"}
+        </p>
+        <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+          Once your inverter is linked and we receive live data, connection status and energy
+          readings will appear here. Monitoring only during the pilot read-only period — we never
+          mark you connected without a real data pull.
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          Use <span className="text-slate-300">Connect Inverter</span> above if you haven&apos;t
+          submitted a connection request yet.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div

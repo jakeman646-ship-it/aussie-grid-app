@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Sigenergy Connection Status
  * File: src/components/SigenergyConnectionStatus.tsx
- * Version: v0.6.0
- * Updated: 18 Jul 2026 — in-memory dry-run history (last 5 attempts)
+ * Version: v0.7.0
+ * Updated: 19 Jul 2026 — customerFacing hides dry-run / CLI / ops docs
  *
  * OEM adapter for Sigenergy. Uses the shared energy-system status shell so
  * Sungrow / Tesla can follow the same pattern later without one-off layouts.
@@ -58,6 +58,19 @@ const STATUS_BLURB: Record<"connected" | "data_not_ready" | "not_configured", st
     "Sigenergy may be configured, but we do not yet have a successful data pull. Owner Accept or empty history can cause this — we will not mark you connected until data flows.",
   not_configured:
     "No Sigenergy systemId is linked to this household yet. Add a systemId, then run a dry-run check (or use the CLI). Commercial / MM: validate → CTO gate → first live day.",
+};
+
+/** Household-facing blurbs (admin impersonation / customer demo). */
+const STATUS_BLURB_CUSTOMER: Record<
+  "connected" | "data_not_ready" | "not_configured",
+  string
+> = {
+  connected:
+    "Your Sigenergy system is linked and we are receiving usable energy data. Monitoring only — the agent is not controlling your system from here.",
+  data_not_ready:
+    "Your system is being set up, but we have not received a successful data pull yet. We only show Connected once live data arrives.",
+  not_configured:
+    "Your inverter is not linked for live data yet. Use Connect Inverter if you still need to submit a connection request.",
 };
 
 const VERDICT_COPY: Record<
@@ -203,6 +216,7 @@ export function SigenergyConnectionStatus({
   householdId,
   variant = "full",
   inverterMake = null,
+  customerFacing = false,
 }: SigenergyConnectionStatusProps) {
   const {
     status,
@@ -234,7 +248,7 @@ export function SigenergyConnectionStatus({
   }, [loading, statusRefreshing]);
 
   const presentation = ENERGY_SYSTEM_STATUS_STYLES[status];
-  const blurb = STATUS_BLURB[status];
+  const blurb = customerFacing ? STATUS_BLURB_CUSTOMER[status] : STATUS_BLURB[status];
   const hasSystemId = Boolean(systemId?.trim());
   const statusBusy = loading || statusRefreshing;
   const canRunApiDryRun = hasSystemId && !dryRunning;
@@ -355,10 +369,42 @@ export function SigenergyConnectionStatus({
     return (
       <EnergySystemStatusCompactNotConfigured
         oemLabel={OEM_LABEL}
-        message="Not configured for this household — monitoring only when a systemId is linked."
+        message={
+          customerFacing
+            ? "Not connected yet — live status appears after your system is linked and data arrives."
+            : "Not configured for this household — monitoring only when a systemId is linked."
+        }
       />
     );
   }
+
+  const customerMeta = [
+    { label: "Last updated", value: statusBusy ? "…" : lastLabel },
+    {
+      label: "Data status",
+      value: statusBusy
+        ? "…"
+        : status === "connected"
+          ? "Receiving data"
+          : status === "data_not_ready"
+            ? "Waiting for data"
+            : "Not connected",
+    },
+  ];
+
+  const opsMeta = [
+    { label: "Last successful ingest", value: statusBusy ? "…" : lastLabel },
+    { label: "System ID", value: systemId || "(not set)", mono: true },
+    { label: "Site type", value: statusBusy ? "…" : siteType || "—" },
+    {
+      label: "Phase data (cloud)",
+      value: statusBusy
+        ? "…"
+        : phaseDataPresent
+          ? "Present"
+          : "Absent (aggregate only)",
+    },
+  ];
 
   return (
     <EnergySystemStatusCard
@@ -366,32 +412,21 @@ export function SigenergyConnectionStatus({
       oemLabel={OEM_LABEL}
       presentation={presentation}
       blurb={blurb}
-      usingPlaceholder={usingPlaceholder}
+      usingPlaceholder={customerFacing ? false : usingPlaceholder}
       busy={statusBusy || dryRunning}
       badgeLoading={badgeLoading}
       metaBusy={statusBusy}
-      metaItems={[
-        { label: "Last successful ingest", value: statusBusy ? "…" : lastLabel },
-        { label: "System ID", value: systemId || "(not set)", mono: true },
-        { label: "Site type", value: statusBusy ? "…" : siteType || "—" },
-        {
-          label: "Phase data (cloud)",
-          value: statusBusy
-            ? "…"
-            : phaseDataPresent
-              ? "Present"
-              : "Absent (aggregate only)",
-        },
-      ]}
+      metaItems={customerFacing ? customerMeta : opsMeta}
       alerts={
         <>
           {error && (
             <div className="mt-3 rounded-md border border-amber-700/40 bg-amber-950/25 px-3 py-2 text-xs text-amber-200/95">
-              Could not refresh live Sigenergy rows ({error}). Showing safe placeholder status — not
-              claimed as connected.
+              {customerFacing
+                ? "We could not refresh connection status just now. Showing the last known safe status — not claimed as connected."
+                : `Could not refresh live Sigenergy rows (${error}). Showing safe placeholder status — not claimed as connected.`}
             </div>
           )}
-          {!hasSystemId && !statusBusy && (
+          {!customerFacing && !hasSystemId && !statusBusy && (
             <div className="mt-3 rounded-md border border-slate-600/50 bg-slate-950/50 px-3 py-2 text-xs text-slate-300">
               <span className="font-medium text-slate-200">No systemId yet.</span> Dry-run via API is
               disabled until a Sigenergy systemId is linked. You can still copy the CLI template below
@@ -406,54 +441,79 @@ export function SigenergyConnectionStatus({
             type="button"
             onClick={handleRefreshStatus}
             disabled={!canRefreshStatus}
-            title="Re-fetch stored Sigenergy status from Supabase (does not run dry-run)"
+            title={
+              customerFacing
+                ? "Refresh connection status"
+                : "Re-fetch stored Sigenergy status from Supabase (does not run dry-run)"
+            }
             className="rounded-lg border border-slate-500 bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {statusRefreshing ? "Refreshing status…" : "Refresh Status"}
+            {statusRefreshing
+              ? "Refreshing…"
+              : customerFacing
+                ? "Refresh"
+                : "Refresh Status"}
           </button>
-          <button
-            type="button"
-            onClick={() => void handleDryRun()}
-            disabled={!canRunApiDryRun || statusRefreshing}
-            title={
-              !hasSystemId
-                ? "Configure a systemId first"
-                : dryRunning
-                  ? "Validation in progress"
-                  : "Run read-only dry-run validation via API"
-            }
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {dryRunning ? "Running dry-run…" : "Run dry-run check"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowManualCmd((v) => !v)}
-            disabled={dryRunning}
-            className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 disabled:opacity-50"
-          >
-            {showManualCmd ? "Hide CLI fallback" : "Show CLI fallback"}
-          </button>
+          {!customerFacing && (
+            <>
+              <button
+                type="button"
+                onClick={() => void handleDryRun()}
+                disabled={!canRunApiDryRun || statusRefreshing}
+                title={
+                  !hasSystemId
+                    ? "Configure a systemId first"
+                    : dryRunning
+                      ? "Validation in progress"
+                      : "Run read-only dry-run validation via API"
+                }
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {dryRunning ? "Running dry-run…" : "Run dry-run check"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowManualCmd((v) => !v)}
+                disabled={dryRunning}
+                className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 disabled:opacity-50"
+              >
+                {showManualCmd ? "Hide CLI fallback" : "Show CLI fallback"}
+              </button>
+            </>
+          )}
         </>
       }
       actionHint={
-        <p className="mt-2 text-[11px] text-slate-500">
-          <span className="font-medium text-slate-400">Refresh Status</span> only reloads stored
-          connection rows. <span className="font-medium text-slate-400">Run dry-run check</span> calls
-          the API (read-only, no writes).
-        </p>
+        customerFacing ? (
+          <p className="mt-2 text-[11px] text-slate-500">
+            Refresh reloads the latest connection status. Monitoring only — no control from this
+            page.
+          </p>
+        ) : (
+          <p className="mt-2 text-[11px] text-slate-500">
+            <span className="font-medium text-slate-400">Refresh Status</span> only reloads stored
+            connection rows. <span className="font-medium text-slate-400">Run dry-run check</span>{" "}
+            calls the API (read-only, no writes).
+          </p>
+        )
       }
       footer={
-        <>
-          <p className="text-xs leading-relaxed text-slate-500">
-            <span className="font-medium text-slate-400">Ops docs (backend/ingest): </span>
-            {CHECKLIST_NOTE}
+        customerFacing ? (
+          <p className="text-xs text-slate-500">
+            Pilot monitoring only. We never mark you connected without a successful data pull.
           </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Monitoring / Phase A only. Commercial sites: 4-week read-only before any control opt-in.
-            This card never issues control commands.
-          </p>
-        </>
+        ) : (
+          <>
+            <p className="text-xs leading-relaxed text-slate-500">
+              <span className="font-medium text-slate-400">Ops docs (backend/ingest): </span>
+              {CHECKLIST_NOTE}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Monitoring / Phase A only. Commercial sites: 4-week read-only before any control
+              opt-in. This card never issues control commands.
+            </p>
+          </>
+        )
       }
     >
       {/* —— Status refresh in progress —— */}
@@ -467,14 +527,15 @@ export function SigenergyConnectionStatus({
             <p className="font-medium text-slate-100">Refreshing status…</p>
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Loading latest Sigenergy rows from Supabase. This does not contact Sigenergy cloud or
-            write anything.
+            {customerFacing
+              ? "Loading the latest connection status. Monitoring only — nothing is being written."
+              : "Loading latest Sigenergy rows from Supabase. This does not contact Sigenergy cloud or write anything."}
           </p>
         </div>
       )}
 
       {/* —— Dry-run in progress —— */}
-      {dryRunning && (
+      {!customerFacing && dryRunning && (
         <div
           className="mt-4 rounded-lg border border-sky-700/40 bg-sky-950/25 px-4 py-3 text-sm text-sky-100"
           role="status"
@@ -496,7 +557,7 @@ export function SigenergyConnectionStatus({
       )}
 
       {/* —— Dry-run result —— */}
-      {dryRunResult && verdictUi && (
+      {!customerFacing && dryRunResult && verdictUi && (
         <div className={`mt-4 rounded-lg border px-4 py-4 text-sm ${verdictUi.panelClass}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -660,7 +721,7 @@ export function SigenergyConnectionStatus({
         </div>
       )}
 
-      {dryRunError && !dryRunning && (
+      {!customerFacing && dryRunError && !dryRunning && (
         <div className="mt-4 rounded-lg border border-rose-700/45 bg-rose-950/30 px-4 py-3 text-sm text-rose-100">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-semibold text-rose-200">Could not complete dry-run</p>
@@ -678,42 +739,44 @@ export function SigenergyConnectionStatus({
       )}
 
       {/* —— Dry-run history (session memory, last 5) —— */}
-      <div className="mt-4 rounded-lg border border-slate-700/60 bg-slate-950/35 px-4 py-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-            Dry-run history
-          </p>
-          <p className="text-[11px] text-slate-500">
-            Last {DRY_RUN_HISTORY_MAX} · this session only
-          </p>
-        </div>
-        {dryRunHistory.length === 0 ? (
-          <p className="mt-2 text-xs text-slate-500">No dry-run attempts yet</p>
-        ) : (
-          <ul className="mt-2 divide-y divide-slate-800/80" role="list">
-            {dryRunHistory.map((entry) => {
-              const copy = VERDICT_COPY[entry.verdict];
-              return (
-                <li
-                  key={entry.id}
-                  className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
-                >
-                  <span className="text-xs tabular-nums text-slate-300">
-                    {formatHistoryTimestamp(entry.at)}
-                  </span>
-                  <span
-                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${copy.badgeClass}`}
+      {!customerFacing && (
+        <div className="mt-4 rounded-lg border border-slate-700/60 bg-slate-950/35 px-4 py-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Dry-run history
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Last {DRY_RUN_HISTORY_MAX} · this session only
+            </p>
+          </div>
+          {dryRunHistory.length === 0 ? (
+            <p className="mt-2 text-xs text-slate-500">No dry-run attempts yet</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-slate-800/80" role="list">
+              {dryRunHistory.map((entry) => {
+                const copy = VERDICT_COPY[entry.verdict];
+                return (
+                  <li
+                    key={entry.id}
+                    className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
                   >
-                    {copy.label}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+                    <span className="text-xs tabular-nums text-slate-300">
+                      {formatHistoryTimestamp(entry.at)}
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${copy.badgeClass}`}
+                    >
+                      {copy.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
 
-      {showManualCmd && (
+      {!customerFacing && showManualCmd && (
         <div className="mt-4 rounded-lg border border-sky-700/40 bg-sky-950/20 px-4 py-3 text-sm text-sky-100/90">
           <p className="font-medium text-sky-300">Manual dry-run (CLI fallback)</p>
           <p className="mt-1 text-sky-100/80">
