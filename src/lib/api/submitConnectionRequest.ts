@@ -1,9 +1,9 @@
 /**
  * Aussie Grid — Connection request submit helper
  * File: src/lib/api/submitConnectionRequest.ts
- * Version: v0.1.2.18
- * Lines: 410
- * Updated: 8 Jul 2026 — persist phase_count (1 or 3) on insert and pending refresh.
+ * Version: v0.1.3.0
+ * Updated: 19 Jul 2026 — optional location fields (postcode/suburb/state) +
+ *          suggested DNSP/tariff; soft-drop missing columns; best-effort household write.
  */
 import {
   getSupabaseConfigIssue,
@@ -12,6 +12,11 @@ import {
   submitTimeout,
   supabase,
 } from "@/lib/supabase";
+import {
+  defaultTariffProfile,
+  lookupDnsp,
+  normalisePostcode,
+} from "@/lib/dnspLookup";
 import type { PostgrestError } from "@supabase/supabase-js";
 
 export type InverterMake = "Sungrow" | "Tesla";
@@ -26,6 +31,10 @@ export interface SubmitConnectionRequestInput {
   inverterSerial?: string;
   notes?: string;
   currentHouseholdId?: string;
+  /** Recommended location fields (not required to submit). */
+  postcode?: string;
+  suburb?: string;
+  state?: string;
 }
 
 export type SubmitConnectionRequestResult =
@@ -34,6 +43,19 @@ export type SubmitConnectionRequestResult =
 
 const RETRY_ATTEMPTS = 2;
 const RETRY_BASE_DELAY_MS = 500;
+
+/** Optional columns — dropped one-by-one if PostgREST schema cache rejects them. */
+const OPTIONAL_REQUEST_COLUMNS = [
+  "postcode",
+  "suburb",
+  "state",
+  "dnsp",
+  "network_tariff_profile",
+  "phase_count",
+  "inverter_serial",
+  "account_password",
+  "notes",
+] as const;
 
 export function resolveHouseholdId(
   label: string,
@@ -57,6 +79,30 @@ export function resolveHouseholdId(
   return `pending-${short}`;
 }
 
+function buildLocationFields(
+  input: SubmitConnectionRequestInput
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  const suburb = input.suburb?.trim();
+  if (suburb) fields.suburb = suburb;
+
+  const stateRaw = input.state?.trim();
+  if (stateRaw) fields.state = stateRaw.toUpperCase();
+
+  const pc = normalisePostcode(input.postcode);
+  if (pc !== null) {
+    fields.postcode = String(pc).padStart(4, "0").slice(-4);
+    const dnsp = lookupDnsp(pc);
+    if (dnsp) {
+      fields.dnsp = dnsp;
+      const profile = defaultTariffProfile(dnsp);
+      if (profile) fields.network_tariff_profile = profile;
+    }
+  }
+
+  return fields;
+}
+
 function buildPayload(
   householdId: string,
   input: SubmitConnectionRequestInput
@@ -69,6 +115,7 @@ function buildPayload(
     phase_count: input.phaseCount,
     status: "pending_review",
     requested_at: new Date().toISOString(),
+    ...buildLocationFields(input),
   };
 
   const notes = input.notes?.trim();
@@ -122,6 +169,28 @@ export function isTransientFetchError(error: unknown): boolean {
     message.includes("fetch failed") ||
     message.includes("fetcherror")
   );
+}
+
+function dropMissingColumn(
+  payload: Record<string, unknown>,
+  error: PostgrestError | Error
+): string | null {
+  const message = (error.message ?? "").toLowerCase();
+  const schemaMiss =
+    message.includes("does not exist") ||
+    message.includes("could not find") ||
+    message.includes("schema cache") ||
+    ("code" in error && error.code === "PGRST204");
+  if (!schemaMiss) return null;
+  for (const col of OPTIONAL_REQUEST_COLUMNS) {
+    if (col in payload && message.includes(col.toLowerCase())) return col;
+  }
+  // Also allow dropping location keys that may appear on household sync payloads.
+  for (const col of Object.keys(payload)) {
+    if (col === "updated_at" || col === "household_id") continue;
+    if (message.includes(col.toLowerCase())) return col;
+  }
+  return null;
 }
 
 export function mapConnectionSubmitError(
@@ -292,25 +361,118 @@ async function updatePendingRequest(
   payload: Record<string, unknown>,
   flowSignal: AbortSignal
 ): Promise<PostgrestError | null> {
-  const { error } = await runWithNetworkRetry(async () =>
-    supabase
-      .from("pilot_connection_requests")
-      .update({
-        site_id: payload.site_id,
-        account_email: payload.account_email,
-        inverter_brand: payload.inverter_brand,
-        phase_count: payload.phase_count,
-        notes: payload.notes ?? null,
-        inverter_serial: payload.inverter_serial ?? null,
-        account_password: payload.account_password ?? null,
-        requested_at: payload.requested_at,
-        status: "pending_review",
-      })
-      .eq("id", requestId)
-      .abortSignal(requestSignal(flowSignal))
-  );
+  let working: Record<string, unknown> = {
+    site_id: payload.site_id,
+    account_email: payload.account_email,
+    inverter_brand: payload.inverter_brand,
+    phase_count: payload.phase_count,
+    notes: payload.notes ?? null,
+    inverter_serial: payload.inverter_serial ?? null,
+    account_password: payload.account_password ?? null,
+    requested_at: payload.requested_at,
+    status: "pending_review",
+  };
 
-  return error;
+  for (const key of [
+    "postcode",
+    "suburb",
+    "state",
+    "dnsp",
+    "network_tariff_profile",
+  ] as const) {
+    if (key in payload) working[key] = payload[key];
+  }
+
+  for (let i = 0; i < OPTIONAL_REQUEST_COLUMNS.length + 2; i++) {
+    const { error } = await runWithNetworkRetry(async () =>
+      supabase
+        .from("pilot_connection_requests")
+        .update(working)
+        .eq("id", requestId)
+        .abortSignal(requestSignal(flowSignal))
+    );
+    if (!error) return null;
+    const drop = dropMissingColumn(working, error);
+    if (!drop) return error;
+    const next = { ...working };
+    delete next[drop];
+    working = next;
+  }
+  return null;
+}
+
+/**
+ * Best-effort: write location + suggested tariff onto pilot_households when the
+ * row already exists (or RLS allows update). Never fails the connection submit.
+ */
+async function syncLocationToHousehold(
+  householdId: string,
+  payload: Record<string, unknown>,
+  flowSignal: AbortSignal
+): Promise<void> {
+  const locationPatch: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  for (const key of [
+    "postcode",
+    "suburb",
+    "state",
+    "dnsp",
+    "network_tariff_profile",
+  ] as const) {
+    if (payload[key] !== undefined && payload[key] !== null && payload[key] !== "") {
+      locationPatch[key] = payload[key];
+    }
+  }
+  if (Object.keys(locationPatch).length <= 1) return;
+
+  let working = { ...locationPatch };
+  for (let i = 0; i < OPTIONAL_REQUEST_COLUMNS.length + 2; i++) {
+    try {
+      const { error } = await runWithNetworkRetry(async () =>
+        supabase
+          .from("pilot_households")
+          .update(working)
+          .eq("household_id", householdId)
+          .abortSignal(requestSignal(flowSignal))
+      );
+      if (!error) return;
+      const drop = dropMissingColumn(working, error);
+      if (!drop || drop === "updated_at") {
+        console.warn("[submit] household location sync skipped:", error.message);
+        return;
+      }
+      const next = { ...working };
+      delete next[drop];
+      working = next;
+    } catch (err) {
+      console.warn("[submit] household location sync failed:", err);
+      return;
+    }
+  }
+}
+
+async function insertWithOptionalDrop(
+  payload: Record<string, unknown>,
+  flowSignal: AbortSignal
+): Promise<PostgrestError | null> {
+  let working = { ...payload };
+  for (let i = 0; i < OPTIONAL_REQUEST_COLUMNS.length + 2; i++) {
+    const { error } = await runWithNetworkRetry(async () =>
+      supabase
+        .from("pilot_connection_requests")
+        .insert(working)
+        .abortSignal(requestSignal(flowSignal))
+    );
+    if (!error) return null;
+    const drop = dropMissingColumn(working, error);
+    if (!drop) return error;
+    console.warn(`[submit] dropping missing column ${drop} from connection request`);
+    const next = { ...working };
+    delete next[drop];
+    working = next;
+  }
+  return null;
 }
 
 export async function submitConnectionRequest(
@@ -342,14 +504,10 @@ export async function submitConnectionRequest(
   const flowSignal = submitTimeout();
 
   try {
-    const { error: insertError } = await runWithNetworkRetry(async () =>
-      supabase
-        .from("pilot_connection_requests")
-        .insert(payload)
-        .abortSignal(requestSignal(flowSignal))
-    );
+    const insertError = await insertWithOptionalDrop(payload, flowSignal);
 
     if (!insertError) {
+      await syncLocationToHousehold(householdId, payload, flowSignal);
       return { ok: true, householdId, reusedPending: false };
     }
 
@@ -374,6 +532,7 @@ export async function submitConnectionRequest(
           flowSignal
         );
         if (!updateError) {
+          await syncLocationToHousehold(householdId, payload, flowSignal);
           return { ok: true, householdId, reusedPending: true };
         }
         return {
@@ -383,6 +542,7 @@ export async function submitConnectionRequest(
         };
       }
 
+      await syncLocationToHousehold(householdId, payload, flowSignal);
       return {
         ok: true,
         householdId,

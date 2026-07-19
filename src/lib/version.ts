@@ -1,11 +1,11 @@
 /**
  * Aussie Grid — Version
  * File: src/lib/version.ts
- * Version: v0.1.2.20
+ * Version: v0.1.3.0
  * Lines: 16
- * Updated: 7 Jul 2026 — fix Sungrow approve transfer (site_id, inverter_serial).
+ * Updated: 19 Jul 2026 — Connect Inverter location fields + tariff preview.
  */
-export const APP_VERSION = "0.1.2.20";
+export const APP_VERSION = "0.1.3.0";
 export const APP_VERSION_LABEL = "Pilot";
 
 export function formatAppVersion(short = false): string {

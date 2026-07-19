@@ -1,12 +1,12 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.2.22
- * Lines: 640
- * Updated: 8 Jul 2026 — required Supply Phase dropdown (Single / Three Phase);
- *          saved as phase_count (1 or 3) to pilot_connection_requests on submit.
+ * Version: v0.1.3.0
+ * Lines: ~720
+ * Updated: 19 Jul 2026 — recommended location fields (postcode/suburb/state) with
+ *          live QLD DNSP/tariff preview for CEO Dashboard tariff detection.
  */
-import { useState, useEffect, type FormEvent } from "react";
+import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
 import {
   supabase,
@@ -20,6 +20,7 @@ import {
   isTransientFetchError,
   type InverterMake,
 } from "@/lib/api/submitConnectionRequest";
+import { suggestTariffFromPostcode } from "@/lib/dnspLookup";
 
 export interface ConnectInverterProps {
   onBack?: () => void;
@@ -37,12 +38,26 @@ interface FormData {
   siteId: string;
   inverterSerial: string;
   notes: string;
+  postcode: string;
+  suburb: string;
+  state: string;
 }
 
 const SUPPLY_PHASE_OPTIONS: { value: SupplyPhase; label: string }[] = [
   { value: "1", label: "Single Phase (230V)" },
   { value: "3", label: "Three Phase (400V)" },
 ];
+
+const STATE_OPTIONS = [
+  "QLD",
+  "NSW",
+  "VIC",
+  "SA",
+  "WA",
+  "TAS",
+  "NT",
+  "ACT",
+] as const;
 
 interface ConnectionStatus {
   status: "none" | "pending" | "connected";
@@ -100,21 +115,26 @@ const INVERTER_COPY: Record<
   },
 };
 
+const EMPTY_FORM: FormData = {
+  householdLabel: "",
+  supplyPhase: "1",
+  accountEmail: "",
+  accountPassword: "",
+  siteId: "",
+  inverterSerial: "",
+  notes: "",
+  postcode: "",
+  suburb: "",
+  state: "QLD",
+};
+
 export function ConnectInverter({
   onBack,
   onConnectionComplete,
   currentHouseholdId,
 }: ConnectInverterProps) {
   const [inverterMake, setInverterMake] = useState<InverterMake>("Sungrow");
-  const [formData, setFormData] = useState<FormData>({
-    householdLabel: "",
-    supplyPhase: "1",
-    accountEmail: "",
-    accountPassword: "",
-    siteId: "",
-    inverterSerial: "",
-    notes: "",
-  });
+  const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +145,14 @@ export function ConnectInverter({
   const configIssue = getSupabaseConfigIssue();
 
   const copy = INVERTER_COPY[inverterMake];
+
+  const tariffPreview = useMemo(
+    () => suggestTariffFromPostcode(formData.postcode, formData.state),
+    [formData.postcode, formData.state]
+  );
+
+  const showTariffPreview =
+    formData.postcode.replace(/\D/g, "").length >= 4 && tariffPreview.ok;
 
   useEffect(() => {
     const checkExistingConnection = async () => {
@@ -161,6 +189,7 @@ export function ConnectInverter({
         }
 
         const household = householdResult.data;
+
         const isConnected =
           household &&
           (household.status === "active" ||
@@ -235,6 +264,7 @@ export function ConnectInverter({
       setError("Please enter your Sungrow iSolarCloud account password.");
       return false;
     }
+    // Location fields are recommended only — never block submit.
     return true;
   };
 
@@ -256,6 +286,9 @@ export function ConnectInverter({
         inverterSerial: formData.inverterSerial,
         notes: formData.notes,
         currentHouseholdId,
+        postcode: formData.postcode,
+        suburb: formData.suburb,
+        state: formData.state,
       });
 
       if (!result.ok) {
@@ -285,15 +318,7 @@ export function ConnectInverter({
   };
 
   const resetForm = () => {
-    setFormData({
-      householdLabel: "",
-      supplyPhase: "1",
-      accountEmail: "",
-      accountPassword: "",
-      siteId: "",
-      inverterSerial: "",
-      notes: "",
-    });
+    setFormData(EMPTY_FORM);
     setIsSubmitted(false);
     setError(null);
   };
@@ -458,6 +483,84 @@ export function ConnectInverter({
                     placeholder="e.g. Jack's Place or 12 Davlyn Dr"
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                   />
+                </div>
+
+                {/* Location — recommended for tariff + weather routing */}
+                <div className="rounded-lg border border-slate-700/80 bg-slate-950/50 p-4">
+                  <h4 className="text-sm font-semibold text-emerald-400">
+                    Your location{" "}
+                    <span className="font-normal text-slate-500">(recommended)</span>
+                  </h4>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Helps us set the right network tariff (Ergon / Energex) and weather for your area.
+                    You can leave these blank and still submit.
+                  </p>
+
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <div className="sm:col-span-1">
+                      <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                        Postcode
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="postal-code"
+                        maxLength={4}
+                        value={formData.postcode}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "postcode",
+                            e.target.value.replace(/\D/g, "").slice(0, 4)
+                          )
+                        }
+                        placeholder="4740"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                        Suburb
+                      </label>
+                      <input
+                        type="text"
+                        autoComplete="address-level2"
+                        value={formData.suburb}
+                        onChange={(e) => handleInputChange("suburb", e.target.value)}
+                        placeholder="Andergrove"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                        State
+                      </label>
+                      <select
+                        value={formData.state}
+                        onChange={(e) => handleInputChange("state", e.target.value)}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm focus:border-emerald-500 focus:outline-none"
+                      >
+                        {STATE_OPTIONS.map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {showTariffPreview && (
+                    <div className="mt-3 rounded-md border border-emerald-700/40 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-100/95">
+                      <span className="font-medium text-emerald-300">Suggested tariff: </span>
+                      {tariffPreview.summary}
+                    </div>
+                  )}
+                  {!showTariffPreview &&
+                    formData.postcode.replace(/\D/g, "").length >= 4 &&
+                    !tariffPreview.ok && (
+                      <div className="mt-3 rounded-md border border-slate-600/50 bg-slate-900/60 px-3 py-2 text-xs text-slate-400">
+                        {tariffPreview.summary}
+                      </div>
+                    )}
                 </div>
 
                 <div>
