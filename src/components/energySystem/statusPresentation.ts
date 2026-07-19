@@ -28,7 +28,7 @@ export const ENERGY_SYSTEM_STATUS_STYLES: Record<
     ringClass: "border-emerald-700/50",
   },
   data_not_ready: {
-    label: "Data Not Ready",
+    label: "Preparing data",
     badgeClass: "bg-amber-900/60 text-amber-200 ring-1 ring-amber-600/40",
     dotClass: "bg-amber-500",
     ringClass: "border-amber-700/40",

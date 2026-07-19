@@ -79,9 +79,13 @@ function CustomTooltip({ active, payload, label }: any) {
 export function EnergyReadingsChart({ readings }: EnergyReadingsChartProps) {
   if (!readings || readings.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-8 text-center">
-        <p className="text-slate-400">No energy readings available yet.</p>
-        <p className="mt-1 text-xs text-slate-500">Data will appear here once your system is connected and sending readings.</p>
+      <div className="rounded-xl border border-dashed border-slate-600/70 bg-slate-900/50 px-6 py-8 text-center">
+        <p className="text-sm font-medium text-slate-200">Your energy chart is almost ready</p>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-400">
+          Once we receive the first readings from your system, solar, home use, battery, and grid
+          flow will chart here automatically. Nothing is missing on your side — we&apos;re waiting
+          on the first data pull.
+        </p>
       </div>
     );
   }

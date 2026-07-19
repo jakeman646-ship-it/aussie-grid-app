@@ -68,7 +68,7 @@ const STATUS_BLURB_CUSTOMER: Record<
   connected:
     "Your Sigenergy system is linked and we are receiving usable energy data. Monitoring only — the agent is not controlling your system from here.",
   data_not_ready:
-    "Your system is being set up, but we have not received a successful data pull yet. We only show Connected once live data arrives.",
+    "You're linked and we're preparing the first readings. We only show Connected once live data actually arrives — nothing is wrong.",
   not_configured:
     "Your inverter is not linked for live data yet. Use Connect Inverter if you still need to submit a connection request.",
 };
@@ -387,7 +387,7 @@ export function SigenergyConnectionStatus({
         : status === "connected"
           ? "Receiving data"
           : status === "data_not_ready"
-            ? "Waiting for data"
+            ? "Preparing first readings"
             : "Not connected",
     },
   ];

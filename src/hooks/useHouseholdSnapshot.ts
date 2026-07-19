@@ -41,12 +41,12 @@ interface UseHouseholdSnapshotResult {
   refetch: () => void;
 }
 
-/** Minimal snapshot for admin impersonation before telemetry exists. */
+/** Minimal snapshot before telemetry exists (impersonation / new connection). */
 function buildEmptySnapshot(householdId: string): HouseholdSnapshot {
   return {
     household_id: householdId,
     mode: "self_consume",
-    reason: "Waiting for first telemetry readings",
+    reason: "Preparing your first readings — suggestions appear once live data arrives",
     battery_soc: 0,
     solar_kw: 0,
     grid_kw: 0,
@@ -56,7 +56,7 @@ function buildEmptySnapshot(householdId: string): HouseholdSnapshot {
     last_updated: new Date().toISOString(),
     data_source: "no_data",
     days_of_data: 0,
-    data_quality_note: "No readings yet — connect the inverter to start collecting data",
+    data_quality_note: "No live readings yet — your dashboard will fill in after the first successful data pull",
   };
 }
 
@@ -140,7 +140,7 @@ export function useHouseholdSnapshot(
         mode: "self_consume",
         reason: hasLiveReadings
           ? "Real data • Calculated from your actual solar, grid & consumption"
-          : "Waiting for first telemetry readings",
+          : "Preparing your first readings — suggestions appear once live data arrives",
         battery_soc: latestRow?.battery_soc != null ? Number(latestRow.battery_soc) : 0,
         solar_kw: latest?.solar_kw ?? 0,
         grid_kw: latest?.grid_kw ?? 0,
@@ -152,7 +152,7 @@ export function useHouseholdSnapshot(
         days_of_data: calc.daysOfData || 0,
         data_quality_note: hasLiveReadings
           ? `${calc.dataNote} • Ergon 12D TOU via ${savingsSource}`
-          : "Connect your system to start collecting readings",
+          : "No live readings yet — your dashboard will fill in after the first successful data pull",
       };
 
       setData(snapshot);

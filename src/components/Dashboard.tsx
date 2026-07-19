@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.32
- * Updated: 19 Jul 2026 — impersonation uses customerFacing energy-system UI.
+ * Version: v0.1.2.33
+ * Updated: 19 Jul 2026 — reassuring empty states for newly connected homes.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -64,7 +64,10 @@ import {
   EnergySystemsSection,
 } from "@/components/energySystem";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
-import { getImpersonationDataNotice } from "@/lib/impersonationDataStatus";
+import {
+  AWAITING_LIVE_DATA_MESSAGE,
+  getImpersonationDataNotice,
+} from "@/lib/impersonationDataStatus";
 import { useState, useEffect, useRef } from "react";
 import { supabase, queryTimeout, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -316,10 +319,13 @@ function NextStepsSection({
   isConnected,
   inverterMake,
   onConnect,
+  awaitingLiveData = false,
 }: {
   isConnected?: boolean;
   inverterMake?: string | null;
   onConnect?: () => void;
+  /** Connected (or linked) but live telemetry / decisions not ready yet. */
+  awaitingLiveData?: boolean;
 }) {
   const brand = inverterMake === "Tesla" ? "Tesla" : inverterMake === "Sungrow" ? "Sungrow" : "inverter";
 
@@ -347,15 +353,107 @@ function NextStepsSection({
   }
 
   return (
-    <section className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-5 py-4">
-      <h3 className="text-base font-semibold text-emerald-400">You&apos;re connected — here&apos;s what&apos;s next</h3>
-      <ul className="mt-3 space-y-2 text-sm text-slate-300 list-disc list-inside">
-        <li>Check the dashboard daily to see your agent&apos;s latest suggestion and why it chose that mode</li>
-        <li>Review &quot;Today&apos;s energy decision&quot; and &quot;Tomorrow&apos;s Outlook&quot; for context</li>
-        <li>We&apos;re still in the pre-pilot learning phase — everything is read-only while we gather data from participating homes</li>
-        <li>Once we&apos;ve seen enough data, we&apos;ll move to the active phase where the agent can control operating modes for you</li>
+    <section className="rounded-xl border border-emerald-600/35 bg-gradient-to-br from-emerald-950/35 via-slate-900/50 to-slate-900/40 px-5 py-5">
+      <h3 className="text-lg font-semibold text-emerald-300">
+        {awaitingLiveData
+          ? "You're connected — we're preparing your dashboard"
+          : "You're connected — here's what's next"}
+      </h3>
+      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+        {awaitingLiveData
+          ? "Thanks for joining the Aussie Grid Mackay pilot. Your system is linked. The first live readings can take a little while — once they arrive, this page fills in automatically."
+          : "Thanks for being part of the early Mackay pilot group. Your data helps us build something useful for local households."}
+      </p>
+      <ol className="mt-4 space-y-3 text-sm text-slate-300">
+        <li className="flex gap-3">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600/25 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/35">
+            1
+          </span>
+          <span>
+            <span className="font-medium text-slate-100">Watch for live data</span>
+            <span className="mt-0.5 block text-slate-400">
+              Solar, battery, and grid cards appear after the first successful data pull — usually
+              within a day of connection.
+            </span>
+          </span>
+        </li>
+        <li className="flex gap-3">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600/25 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/35">
+            2
+          </span>
+          <span>
+            <span className="font-medium text-slate-100">Stay in read-only / suggest-only</span>
+            <span className="mt-0.5 block text-slate-400">
+              Your agent will start sharing daily mode suggestions once it has enough data. It
+              cannot change your inverter until you activate agent control.
+            </span>
+          </span>
+        </li>
+        <li className="flex gap-3">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600/25 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/35">
+            3
+          </span>
+          <span>
+            <span className="font-medium text-slate-100">Activate agent control when you&apos;re ready</span>
+            <span className="mt-0.5 block text-slate-400">
+              Use Activate Agent Control above only when you want Aussie Grid to apply suggested
+              modes on your system. You stay in charge of that step.
+            </span>
+          </span>
+        </li>
+      </ol>
+      <p className="mt-4 text-xs leading-relaxed text-emerald-300/85">
+        Tip: refresh this page after a day or two if cards still look empty — new connections often
+        need one full day of history before charts and savings light up.
+      </p>
+    </section>
+  );
+}
+
+/** Single calm panel replacing a grid of empty metric cards. */
+function PreparingLiveDataPanel() {
+  return (
+    <section
+      role="status"
+      className="rounded-xl border border-dashed border-slate-600/70 bg-slate-900/55 px-5 py-6"
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400/85">
+        Live energy snapshot
+      </p>
+      <h2 className="mt-1 text-lg font-semibold text-slate-100">Preparing your live readings</h2>
+      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+        Battery level, solar output, grid flow, home use, and savings will show here once we receive
+        real telemetry from your system. We&apos;re not showing zeros or guesswork in the meantime.
+      </p>
+      <ul className="mt-4 grid gap-2 text-sm text-slate-400 sm:grid-cols-2">
+        <li className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">Battery &amp; solar — waiting on first pull</li>
+        <li className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">Grid &amp; home use — waiting on first pull</li>
+        <li className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">Yesterday&apos;s savings — after we have a full day</li>
+        <li className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">Mode suggestion — after the agent has data</li>
       </ul>
-      <p className="mt-3 text-xs text-emerald-300/80">Thanks for being part of the early group — your data is helping us build something useful for Mackay households.</p>
+    </section>
+  );
+}
+
+function PreparingDecisionsPanel() {
+  return (
+    <section
+      role="status"
+      className="rounded-xl border border-dashed border-slate-600/70 bg-slate-900/55 px-5 py-6"
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400/85">
+        Today&apos;s energy decision
+      </p>
+      <h2 className="mt-1 text-lg font-semibold text-slate-100">Suggestions coming soon</h2>
+      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+        Once live readings are flowing, your household agent will record a daily mode suggestion
+        here — with plain-English reasoning. Until then there is nothing to review, and that is
+        expected for a new connection.
+      </p>
+      <p className="mt-3 text-xs text-slate-500">
+        Read-only / suggest-only during this phase. Activate Agent Control only when you want the
+        agent to apply modes on your inverter.
+      </p>
     </section>
   );
 }
@@ -502,12 +600,12 @@ function WarningBanner({ message }: { message: string }) {
   );
 }
 
-/** Neutral info for admin impersonation — missing pilot data is expected, not an outage. */
-function ImpersonationDataNotice({ message }: { message: string }) {
+/** Calm status banner — missing pilot data is expected, not an outage. */
+function SoftStatusNotice({ message }: { message: string }) {
   return (
     <div
       role="status"
-      className="rounded-lg border border-slate-600/60 bg-slate-900/50 px-4 py-3 text-sm leading-relaxed text-slate-300"
+      className="rounded-xl border border-emerald-700/35 bg-emerald-950/20 px-4 py-3.5 text-sm leading-relaxed text-slate-200"
     >
       {message}
     </div>
@@ -589,16 +687,6 @@ export function Dashboard({
 
   const impersonationDataReady =
     !householdQuery.loading && !snapshotQuery.loading && !decisionQuery.loading;
-
-  // Impersonation-aware messaging: new households often have no registry row, readings, or decisions yet.
-  const impersonationDataNotice =
-    isImpersonating && impersonationDataReady
-      ? getImpersonationDataNotice({
-          householdMissing: !household,
-          hasQueryError: Boolean(queryError),
-          hasLiveSnapshot,
-        })
-      : null;
 
   const refetchAll = () => {
     householdQuery.refetch();
@@ -688,12 +776,38 @@ export function Dashboard({
   const brand = connectionLabel(household);
   const phaseCountLabel = formatPhaseCountLabel(household?.phase_count);
 
+  // Linked / connected but no usable live telemetry yet — collapse empty cards.
+  const awaitingLiveData =
+    impersonationDataReady &&
+    !hasLiveSnapshot &&
+    (Boolean(household) || householdConnected);
+
+  const impersonationDataNotice =
+    isImpersonating && impersonationDataReady
+      ? getImpersonationDataNotice({
+          householdMissing: !household,
+          hasQueryError: Boolean(queryError),
+          hasLiveSnapshot,
+        })
+      : null;
+
+  const awaitingDataNotice =
+    !isImpersonating && awaitingLiveData ? AWAITING_LIVE_DATA_MESSAGE : null;
+
+  const statusNotice = impersonationDataNotice ?? awaitingDataNotice;
+  const energySystemsCustomerFacing = isImpersonating || awaitingLiveData;
+
   if ((loading || impersonationChecking) && !skipLoading && !snapshot && !household && !decision) {
     return <LoadingState onSkip={() => setSkipLoading(true)} />;
   }
 
-  const mode = snapshot?.mode ?? decision?.mode ?? "—";
-  const reason = snapshot?.reason ?? decision?.reason ?? "No decision recorded";
+  const mode = hasLiveSnapshot || decision ? (snapshot?.mode ?? decision?.mode ?? "—") : "—";
+  const reason =
+    decision?.reason ??
+    (hasLiveSnapshot ? snapshot?.reason : null) ??
+    (awaitingLiveData
+      ? "Preparing your first readings — suggestions appear once live data arrives"
+      : "No decision recorded yet");
   const dataSource = snapshot?.data_source ?? "simulated";
   const isLiveData = dataSource === "supabase" || dataSource === "live";
 
@@ -754,8 +868,20 @@ export function Dashboard({
             <DevHouseholdSwitcher currentId={effectiveHouseholdId} onSwitch={onSwitchHousehold} />
           )}
 
-          <span className={`rounded-full px-3 py-1 text-xs font-medium ${isLiveData ? "bg-emerald-900/60 text-emerald-300" : "bg-amber-900/40 text-amber-200"}`}>
-            {isLiveData ? "Live data" : "Sample data for now"}
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-medium ${
+              isLiveData
+                ? "bg-emerald-900/60 text-emerald-300"
+                : awaitingLiveData
+                  ? "bg-sky-900/50 text-sky-200"
+                  : "bg-amber-900/40 text-amber-200"
+            }`}
+          >
+            {isLiveData
+              ? "Live data"
+              : awaitingLiveData
+                ? "Preparing live data"
+                : "Sample data for now"}
           </span>
 
           <button onClick={refetchAll} className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500">
@@ -787,9 +913,7 @@ export function Dashboard({
         />
       )}
 
-      {impersonationDataNotice && (
-        <ImpersonationDataNotice message={impersonationDataNotice} />
-      )}
+      {statusNotice && <SoftStatusNotice message={statusNotice} />}
 
       {household && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3">
@@ -834,12 +958,12 @@ export function Dashboard({
         <ConnectionHealthSummary
           householdId={householdId}
           inverterMake={household?.inverter_make}
-          customerFacing={isImpersonating}
+          customerFacing={energySystemsCustomerFacing}
         />
         <EnergySystemsSection
           householdId={householdId}
           inverterMake={household?.inverter_make}
-          customerFacing={isImpersonating}
+          customerFacing={energySystemsCustomerFacing}
         />
       </div>
 
@@ -849,7 +973,8 @@ export function Dashboard({
         isConnected={householdConnected}
         onActivated={() => householdQuery.refetch()}
       />
-      <WelcomePilotOverview />
+
+      {!householdConnected && <WelcomePilotOverview />}
 
       <ConnectYourSystemPrompt
         inverterMake={household?.inverter_make}
@@ -861,14 +986,39 @@ export function Dashboard({
         isConnected={householdConnected}
         inverterMake={household?.inverter_make}
         onConnect={onConnectInverter}
+        awaitingLiveData={awaitingLiveData}
       />
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <CurrentModeCard mode={String(mode)} reason={friendlyReason} contextLine={modeContextLine} />
-        <MetricCard label="Battery level" value={snapshot ? `${snapshot.battery_soc.toFixed(0)}%` : "Waiting for data"} hint={snapshot ? "How full your home battery is right now" : "Connect your system to see live values"} />
-        <MetricCard label="Solar output" value={snapshot ? `${snapshot.solar_kw.toFixed(1)} kW` : "Waiting for data"} hint={snapshot ? "Power your panels are generating now" : undefined} />
-        <MetricCard label="Grid flow" value={snapshot ? formatGridFlow(snapshot.grid_kw) : "Waiting for data"} hint={snapshot ? "Whether you're importing from or exporting to the grid" : undefined} />
-      </section>
+      {awaitingLiveData ? (
+        <PreparingLiveDataPanel />
+      ) : (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <CurrentModeCard mode={String(mode)} reason={friendlyReason} contextLine={modeContextLine} />
+          <MetricCard
+            label="Battery level"
+            value={hasLiveSnapshot && snapshot ? `${snapshot.battery_soc.toFixed(0)}%` : "—"}
+            hint={
+              hasLiveSnapshot
+                ? "How full your home battery is right now"
+                : "Appears after the first live data pull"
+            }
+          />
+          <MetricCard
+            label="Solar output"
+            value={hasLiveSnapshot && snapshot ? `${snapshot.solar_kw.toFixed(1)} kW` : "—"}
+            hint={hasLiveSnapshot ? "Power your panels are generating now" : undefined}
+          />
+          <MetricCard
+            label="Grid flow"
+            value={hasLiveSnapshot && snapshot ? formatGridFlow(snapshot.grid_kw) : "—"}
+            hint={
+              hasLiveSnapshot
+                ? "Whether you're importing from or exporting to the grid"
+                : undefined
+            }
+          />
+        </section>
+      )}
 
       <TomorrowOutlookSection
         tomorrowIrradiance={effectiveTomorrowIrradiance}
@@ -889,14 +1039,15 @@ export function Dashboard({
         </Suspense>
       </ChartErrorBoundary>
 
+      {!awaitingLiveData && (
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Home usage" value={snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "Waiting for data"} hint={snapshot ? "Power your home is using right now" : undefined} />
+        <MetricCard label="Home usage" value={hasLiveSnapshot && snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "—"} hint={hasLiveSnapshot ? "Power your home is using right now" : undefined} />
         <div className="flex flex-col sm:col-span-2 xl:col-span-2">
           <div className="grid gap-4 sm:grid-cols-2">
             <MetricCard
               label="Yesterday's savings"
               value={yesterdaySavings}
-              hint={savingsHint}
+              hint={hasLiveSnapshot ? savingsHint : "Calculated after we have a full day of readings"}
             />
             <MetricCard
               label="Savings so far (pilot)"
@@ -908,15 +1059,18 @@ export function Dashboard({
           </div>
           <SavingsTrendsSection readout={readoutQuery.data} loading={readoutQuery.loading} />
         </div>
-        <MetricCard label="Last updated" value={snapshot ? formatTimestamp(snapshot.last_updated) : "—"} hint={snapshot ? "When we last received data from your system" : undefined} />
+        <MetricCard label="Last updated" value={hasLiveSnapshot && snapshot ? formatTimestamp(snapshot.last_updated) : "—"} hint={hasLiveSnapshot ? "When we last received data from your system" : undefined} />
       </section>
+      )}
 
       <OperatingModesSection activeMode={String(mode)} controlMode={agentControlMode} />
 
+      {awaitingLiveData || !decision ? (
+        <PreparingDecisionsPanel />
+      ) : (
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
           <h2 className="text-lg font-medium text-emerald-400">Today&apos;s energy decision</h2>
-          {decision ? (
             <>
               <DecisionSummaryBlock decision={decision} />
               <dl className="mt-5 space-y-3 border-t border-slate-700/80 pt-4 text-sm">
@@ -933,47 +1087,74 @@ export function Dashboard({
                 )}
               </dl>
             </>
-          ) : (
-            <p className="mt-4 text-sm text-slate-400">
-              No decision recorded yet. Connect your system above and we&apos;ll start learning from your home&apos;s data.
-            </p>
-          )}
         </div>
 
         <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
           <h2 className="text-lg font-medium text-emerald-400">When today&apos;s decision was made</h2>
           <p className="mt-1 text-sm text-slate-500">Snapshot of your home at the time of the latest agent update.</p>
           <dl className="mt-4 space-y-3 text-sm">
-            {decision?.reasoning?.context ? (
+            {decision.reasoning?.context ? (
               <>
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">Battery level when decided</dt><dd>{decision.reasoning.context.battery_soc != null ? `${decision.reasoning.context.battery_soc}%` : "Not recorded"}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">Solar when decided</dt><dd>{decision.reasoning.context.solar_power_w != null ? `${(decision.reasoning.context.solar_power_w / 1000).toFixed(1)} kW` : "Not recorded"}</dd></div>
               </>
             ) : (
-              <p className="text-slate-500">No decision snapshot available yet. Connect your system to start seeing data.</p>
+              <p className="text-slate-500">Decision context will appear here once the agent records a full snapshot.</p>
             )}
           </dl>
         </div>
       </section>
+      )}
 
       {household && (
         <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
           <h2 className="text-lg font-medium text-emerald-400">Your home details</h2>
-          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <div><dt className="text-slate-400">Battery size</dt><dd>{household.battery_capacity_kwh != null ? `${household.battery_capacity_kwh} kWh` : "Not recorded yet"}</dd></div>
-            <div><dt className="text-slate-400">Solar system size</dt><dd>{household.solar_kw != null ? `${household.solar_kw} kW` : "Not recorded yet"}</dd></div>
-            <div>
-              <dt className="text-slate-400">Supply phase</dt>
-              <dd>
-                {phaseCountLabel ? (
-                  <PhaseCountBadge phaseCount={household.phase_count} />
-                ) : (
-                  "Not recorded yet"
-                )}
-              </dd>
-            </div>
-            <div><dt className="text-slate-400">Pilot consent</dt><dd>{household.consent_given ? "Confirmed" : "Still pending"}</dd></div>
-          </dl>
+          {awaitingLiveData &&
+          household.battery_capacity_kwh == null &&
+          household.solar_kw == null &&
+          !phaseCountLabel ? (
+            <p className="mt-3 text-sm leading-relaxed text-slate-400">
+              System size and phase details will fill in as we learn more about your setup. Pilot
+              consent:{" "}
+              <span className="text-slate-200">
+                {household.consent_given ? "Confirmed" : "Still pending"}
+              </span>
+              .
+            </p>
+          ) : (
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-slate-400">Battery size</dt>
+                <dd>
+                  {household.battery_capacity_kwh != null
+                    ? `${household.battery_capacity_kwh} kWh`
+                    : "We'll add this when known"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Solar system size</dt>
+                <dd>
+                  {household.solar_kw != null
+                    ? `${household.solar_kw} kW`
+                    : "We'll add this when known"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Supply phase</dt>
+                <dd>
+                  {phaseCountLabel ? (
+                    <PhaseCountBadge phaseCount={household.phase_count} />
+                  ) : (
+                    "We'll add this when known"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Pilot consent</dt>
+                <dd>{household.consent_given ? "Confirmed" : "Still pending"}</dd>
+              </div>
+            </dl>
+          )}
         </section>
       )}
 

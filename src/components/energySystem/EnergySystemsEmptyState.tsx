@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Energy Systems empty / not-configured guidance
  * File: src/components/energySystem/EnergySystemsEmptyState.tsx
- * Version: v0.2.0
- * Updated: 19 Jul 2026 — customerFacing copy for admin impersonation
+ * Version: v0.3.0
+ * Updated: 19 Jul 2026 — warmer preparing-data copy for customerFacing
  *
  * Read-only helper shown when the household has no configured energy system
  * with a usable data path. Non-intrusive; no writes or control.
@@ -24,21 +24,21 @@ export function EnergySystemsEmptyState({
         role="status"
         className={
           isFull
-            ? "rounded-lg border border-dashed border-slate-600/70 bg-slate-900/50 px-4 py-5"
-            : "rounded-lg border border-slate-700/50 bg-slate-950/40 px-3.5 py-3"
+            ? "rounded-lg border border-dashed border-emerald-700/35 bg-emerald-950/15 px-4 py-5"
+            : "rounded-lg border border-emerald-800/30 bg-emerald-950/10 px-3.5 py-3"
         }
       >
-        <p className="text-sm font-semibold text-slate-200">
-          {isFull ? "No energy system connected yet" : "System not ready yet"}
+        <p className="text-sm font-semibold text-emerald-200/95">
+          {isFull ? "Connecting your energy system" : "Preparing connection status"}
         </p>
-        <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-          Once your inverter is linked and we receive live data, connection status and energy
-          readings will appear here. Monitoring only during the pilot read-only period — we never
-          mark you connected without a real data pull.
+        <p className="mt-1.5 text-xs leading-relaxed text-slate-300">
+          We&apos;re setting up honest status for your inverter and battery. Live connection
+          details appear after the first successful data pull — we never show{" "}
+          <span className="text-slate-200">Connected</span> until data actually flows.
         </p>
         <p className="mt-2 text-xs text-slate-500">
-          Use <span className="text-slate-300">Connect Inverter</span> above if you haven&apos;t
-          submitted a connection request yet.
+          Monitoring only during the pilot read-only period. If you still need to submit access
+          details, use <span className="text-slate-300">Connect Inverter</span> above.
         </p>
       </div>
     );

@@ -1,18 +1,21 @@
 /**
- * Aussie Grid — impersonation data status helpers
+ * Aussie Grid — impersonation / awaiting-data status helpers
  * File: src/lib/impersonationDataStatus.ts
- * Version: v0.1.2.24
- * Lines: 52
- * Updated: 9 Jul 2026 — soft empty-state copy when admin impersonates a household with no data yet.
+ * Version: v0.2.0
+ * Updated: 19 Jul 2026 — reassuring, forward-looking empty-state copy
  */
 
 /** Shown in Dashboard when impersonating a household that has no registry row or readings yet. */
 export const IMPERSONATION_NO_DATA_MESSAGE =
-  "This household has no data yet. This is normal for new connections. You can still connect their inverter below.";
+  "You're connected — we're preparing this home's dashboard. Live solar, battery, and grid readings will appear here once the first data arrives. Nothing is wrong.";
 
 /** Shown when the household record loaded but live readings/decisions are still missing. */
 export const IMPERSONATION_PARTIAL_DATA_MESSAGE =
-  "Live readings aren't available for this household yet. This is normal for new connections. You can still connect their inverter below.";
+  "This home is linked and we're waiting on the first usable data pull. Metrics and energy decisions will fill in automatically — usually within a day of connection.";
+
+/** Household-facing banner when connected (or linked) but live telemetry is not ready yet. */
+export const AWAITING_LIVE_DATA_MESSAGE =
+  "You're connected and we're preparing your dashboard. Live readings and daily energy suggestions will appear here soon — this can take a little while after a new connection. Everything stays read-only until you choose to activate agent control.";
 
 /** Supabase .single() / .maybeSingle() returns this when no row matches. */
 export function isSupabaseNoRowsError(err: unknown): boolean {
@@ -23,7 +26,7 @@ export function isSupabaseNoRowsError(err: unknown): boolean {
 
 /**
  * Pick user-facing copy for impersonation empty/partial data states.
- * Keeps admin view calm — missing pilot data is expected, not a failure.
+ * Keeps the view calm — missing pilot data is expected, not a failure.
  */
 export function getImpersonationDataNotice(options: {
   householdMissing: boolean;
@@ -43,7 +46,7 @@ export function getImpersonationDataNotice(options: {
   }
 
   if (!hasLiveSnapshot) {
-    return IMPERSONATION_NO_DATA_MESSAGE;
+    return IMPERSONATION_PARTIAL_DATA_MESSAGE;
   }
 
   return null;
