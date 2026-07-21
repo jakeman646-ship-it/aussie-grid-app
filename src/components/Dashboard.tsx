@@ -956,7 +956,7 @@ export function Dashboard({
           </button>
 
           {onOpenHelp && <button onClick={onOpenHelp} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Help</button>}
-          {onOpenProfile && <button onClick={onOpenProfile} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Profile</button>}
+          {onOpenProfile && <button onClick={() => onOpenProfile()} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Profile</button>}
           {onConnectInverter && <button onClick={onConnectInverter} className="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Connect Inverter</button>}
           {onSignOut && (
             <button
