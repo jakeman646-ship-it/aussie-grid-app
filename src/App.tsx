@@ -1,9 +1,8 @@
 ﻿/**
  * Aussie Grid — App shell
  * File: src/App.tsx
- * Version: v0.1.2.24
- * Lines: 290
- * Updated: 8 Jul 2026 — auth gate + real sign-out via supabase.auth.signOut().
+ * Version: v0.1.2.25
+ * Updated: 21 Jul 2026 — Profile #priorities deep-link from Dashboard.
  */
 import { Component, Suspense, useEffect, useState, useTransition, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
@@ -127,9 +126,22 @@ export default function App() {
   // Transition-based navigation keeps the current page visible and the nav
   // clickable while the next view's chunk loads, instead of swapping the whole
   // main area for a Suspense fallback that can appear frozen on slow networks.
-  const navigateTo = (newView: View) => {
+  const navigateTo = (newView: View, hash?: string) => {
     setMobileMenuOpen(false);
-    if (newView === view) return;
+    if (typeof window !== 'undefined') {
+      if (hash) {
+        window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${hash}`);
+      } else if (window.location.hash) {
+        window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      }
+    }
+    if (newView === view) {
+      // Same view with a new hash (e.g. Profile → #priorities) still needs a scroll cue.
+      if (hash && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('hashchange'));
+      }
+      return;
+    }
     startNavigation(() => {
       setView(newView);
     });
@@ -298,7 +310,7 @@ export default function App() {
                 refreshKey={dashboardRefresh}
                 userId={currentUserId}
                 onConnectInverter={handleConnectInverter}
-                onOpenProfile={() => navigateTo('profile')}
+                onOpenProfile={(hash) => navigateTo('profile', hash)}
                 onOpenHelp={() => navigateTo('help')}
                 onSignOut={handleSignOut}
                 signingOut={signingOut}

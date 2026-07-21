@@ -2,6 +2,7 @@
 export { useHouseholdSnapshot } from "./useHouseholdSnapshot";
 export { useHouseholdReadings } from "./useHouseholdReadings";
 export { useLatestDecision } from "./useLatestDecision";
+export { useOutcomeRanks } from "./useOutcomeRanks";
 export { usePilotPhase } from "./usePilotPhase";
 export { useWeeklyReadout } from "./useWeeklyReadout";
 export { useImpersonation, stopImpersonating } from "./useImpersonation";

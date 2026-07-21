@@ -1,14 +1,17 @@
 ﻿/**
  * Aussie Grid — Profile page
  * File: src/components/Profile.tsx
- * Version: v0.1.2.25
- * Lines: 248
- * Updated: 8 Jul 2026 — inline Change Password form for email/password accounts.
+ * Version: v0.1.2.26
+ * Updated: 21 Jul 2026 — What matters most (user-ranked outcomes, P0).
  */
 import { useEffect, useState, type FormEvent } from "react";
+import { useImpersonation } from "@/hooks/useImpersonation";
+import { useOutcomeRanks } from "@/hooks/useOutcomeRanks";
 import { usePilotHousehold } from "@/hooks/usePilotHousehold";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
+import { OUTCOME_LABELS } from "@/lib/outcomeRanks";
 import { supabase } from "@/lib/supabase";
+import type { OutcomeKey } from "@/types/outcomeRanks";
 
 interface ProfileProps {
   onBack: () => void;
@@ -20,8 +23,6 @@ interface ProfileProps {
   signOutError?: string | null;
 }
 
-const DEFAULT_USER_ID = getCurrentHouseholdId();
-
 const INPUT_CLASS =
   "w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20";
 
@@ -32,6 +33,16 @@ function userHasEmailPasswordLogin(
   return identities?.some((identity) => identity.provider === "email") ?? false;
 }
 
+function moveKey(order: OutcomeKey[], index: number, direction: -1 | 1): OutcomeKey[] {
+  const next = [...order];
+  const target = index + direction;
+  if (target < 0 || target >= next.length) return next;
+  const tmp = next[index];
+  next[index] = next[target];
+  next[target] = tmp;
+  return next;
+}
+
 export default function Profile({
   onBack,
   onSignOut,
@@ -39,8 +50,14 @@ export default function Profile({
   signingOut = false,
   signOutError = null,
 }: ProfileProps) {
-  const { data: household, loading } = usePilotHousehold(DEFAULT_USER_ID);
+  const loggedInHouseholdId = getCurrentHouseholdId();
+  const { effectiveHouseholdId, isImpersonating } = useImpersonation(loggedInHouseholdId);
+  const { data: household, loading } = usePilotHousehold(effectiveHouseholdId, {
+    isImpersonating,
+  });
+  const outcomeRanks = useOutcomeRanks(effectiveHouseholdId, { isImpersonating });
 
+  const [draftOrder, setDraftOrder] = useState<OutcomeKey[]>(outcomeRanks.orderedKeys);
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [canChangePassword, setCanChangePassword] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
@@ -51,6 +68,26 @@ export default function Profile({
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+
+  // Keep draft order in sync when fetched ranks load / change household.
+  useEffect(() => {
+    if (!outcomeRanks.loading) {
+      setDraftOrder(outcomeRanks.orderedKeys);
+    }
+  }, [outcomeRanks.loading, outcomeRanks.orderedKeys, effectiveHouseholdId]);
+
+  // Scroll to priorities card when opened via Dashboard “Change priorities”.
+  useEffect(() => {
+    const scrollToPriorities = () => {
+      if (typeof window === "undefined") return;
+      if (window.location.hash !== "#priorities") return;
+      const el = document.getElementById("what-matters-most");
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    scrollToPriorities();
+    window.addEventListener("hashchange", scrollToPriorities);
+    return () => window.removeEventListener("hashchange", scrollToPriorities);
+  }, []);
 
   // Resolve the signed-in user (getUser with getSession fallback, same as adminAccess).
   useEffect(() => {
@@ -121,7 +158,6 @@ export default function Profile({
     setPasswordLoading(true);
 
     try {
-      // Verify the current password before allowing an update.
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password: currentPassword,
@@ -151,12 +187,19 @@ export default function Profile({
     }
   };
 
+  const handleSavePriorities = async () => {
+    outcomeRanks.clearSaveFeedback();
+    await outcomeRanks.saveOrderedKeys(draftOrder);
+  };
+
   const displayEmail = authEmail ?? household?.email ?? "—";
+  const prioritiesDirty =
+    draftOrder.length === outcomeRanks.orderedKeys.length &&
+    draftOrder.some((key, i) => key !== outcomeRanks.orderedKeys[i]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-2xl px-6 py-10">
-        {/* Back button */}
         <button
           onClick={onBack}
           className="mb-6 flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200"
@@ -169,6 +212,11 @@ export default function Profile({
           <p className="mt-2 text-base text-slate-300">
             Manage your pilot account details.
           </p>
+          {isImpersonating && (
+            <p className="mt-2 rounded-lg border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+              Viewing another household — priorities are read-only.
+            </p>
+          )}
         </div>
 
         {/* Account Info Card */}
@@ -185,6 +233,103 @@ export default function Profile({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* What matters most — user-ranked outcomes (P0 suggest-only) */}
+        <div
+          id="what-matters-most"
+          className="rounded-2xl border border-slate-700 bg-white p-6 text-slate-900 shadow-sm mb-6 scroll-mt-24"
+        >
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">What matters most</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              This shapes suggestions and reports. We do not control your inverter in this
+              pilot phase.
+            </p>
+          </div>
+
+          {outcomeRanks.loading ? (
+            <p className="text-sm text-slate-500">Loading priorities…</p>
+          ) : (
+            <ol className="space-y-2">
+              {draftOrder.map((key, index) => (
+                <li
+                  key={key}
+                  className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-800">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1 text-sm font-medium text-slate-900">
+                    {OUTCOME_LABELS[key]}
+                  </span>
+                  {!outcomeRanks.isReadOnly && (
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Move ${OUTCOME_LABELS[key]} up`}
+                        disabled={index === 0 || outcomeRanks.saving}
+                        onClick={() => setDraftOrder((prev) => moveKey(prev, index, -1))}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move ${OUTCOME_LABELS[key]} down`}
+                        disabled={index === draftOrder.length - 1 || outcomeRanks.saving}
+                        onClick={() => setDraftOrder((prev) => moveKey(prev, index, 1))}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+
+          {outcomeRanks.saveError && (
+            <div
+              role="alert"
+              className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+              {outcomeRanks.saveError}
+            </div>
+          )}
+
+          {outcomeRanks.saveSuccess && (
+            <div
+              role="status"
+              className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+            >
+              {outcomeRanks.saveSuccess}
+            </div>
+          )}
+
+          {!outcomeRanks.isReadOnly && (
+            <button
+              type="button"
+              onClick={handleSavePriorities}
+              disabled={
+                outcomeRanks.loading ||
+                outcomeRanks.saving ||
+                signingOut ||
+                !prioritiesDirty
+              }
+              className="mt-5 w-full rounded-xl bg-emerald-600 px-6 py-3.5 text-center text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {outcomeRanks.saving ? "Saving priorities…" : "Save priorities"}
+            </button>
+          )}
+
+          {!outcomeRanks.hasSavedRow && !outcomeRanks.loading && (
+            <p className="mt-3 text-xs text-slate-500">
+              Showing pilot defaults until you save. Saving creates your first ranked
+              preferences.
+            </p>
+          )}
         </div>
 
         {/* Sungrow Connection Status */}
@@ -332,7 +477,6 @@ export default function Profile({
           )}
         </div>
 
-        {/* Footer note */}
         <p className="mt-8 text-center text-xs text-slate-500">
           This is a pilot account. Thank you for helping us test Aussie Grid.
         </p>

@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.33
- * Updated: 19 Jul 2026 — reassuring empty states for newly connected homes.
+ * Version: v0.1.2.34
+ * Updated: 21 Jul 2026 — user outcome priorities line (P0 suggest-only).
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -33,6 +33,7 @@ import {
   useHouseholdSnapshot,
   useImpersonation,
   useLatestDecision,
+  useOutcomeRanks,
   usePilotHousehold,
   usePilotPhase,
   useWeeklyReadout,
@@ -46,6 +47,7 @@ import {
   buildModeContextLine,
   formatHarmonyDetail,
 } from "@/lib/decisionSummary";
+import { formatTopPriorities } from "@/lib/outcomeRanks";
 import {
   formatConfidence,
   formatGridFlow,
@@ -163,7 +165,7 @@ export interface DashboardProps {
   /** Bump to refetch all dashboard data in place (no remount). */
   refreshKey?: number;
   onConnectInverter?: () => void;
-  onOpenProfile?: () => void;
+  onOpenProfile?: (hash?: string) => void;
   onOpenHelp?: () => void;
   onSignOut?: () => void;
   /** True while App.tsx is calling supabase.auth.signOut(). */
@@ -518,13 +520,68 @@ function CurrentModeCard({ mode, reason, contextLine }: { mode: string; reason: 
   );
 }
 
-function DecisionSummaryBlock({ decision }: { decision: AgentDecision }) {
+function DecisionSummaryBlock({
+  decision,
+  topPrioritiesLabel,
+  dataHealthy,
+}: {
+  decision: AgentDecision;
+  topPrioritiesLabel?: string | null;
+  dataHealthy?: boolean;
+}) {
+  const summary = buildDecisionSummary(
+    decision,
+    dataHealthy && topPrioritiesLabel
+      ? { topPrioritiesLabel }
+      : undefined,
+  );
   return (
     <div className="mt-4 rounded-lg border border-emerald-800/40 bg-emerald-950/20 p-4">
       <h3 className="text-sm font-semibold text-emerald-300">Why this mode?</h3>
-      <p className="mt-3 text-base leading-relaxed text-slate-100">{buildDecisionSummary(decision)}</p>
+      <p className="mt-3 text-base leading-relaxed text-slate-100">{summary}</p>
       <p className="mt-2 text-xs text-slate-500">This is a plain-English summary of your latest energy decision.</p>
     </div>
+  );
+}
+
+function OutcomePrioritiesBanner({
+  topPrioritiesLabel,
+  dataHealthy,
+  hasSavedRow,
+  onChangePriorities,
+}: {
+  topPrioritiesLabel: string;
+  dataHealthy: boolean;
+  hasSavedRow: boolean;
+  onChangePriorities?: () => void;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-4 sm:p-5">
+      <p className="text-sm text-slate-300">
+        <span className="font-medium text-slate-200">Your priorities: </span>
+        {topPrioritiesLabel}
+      </p>
+      {dataHealthy ? (
+        <p className="mt-2 text-sm text-emerald-300/90">
+          Optimising suggestions for: {topPrioritiesLabel}
+        </p>
+      ) : (
+        <p className="mt-2 text-sm text-amber-200/90">
+          {hasSavedRow
+            ? "Priorities saved — ranked suggestions pause until fresh readings"
+            : "Ranked suggestions pause until fresh readings"}
+        </p>
+      )}
+      {onChangePriorities && (
+        <button
+          type="button"
+          onClick={onChangePriorities}
+          className="mt-3 text-sm font-medium text-emerald-400 hover:text-emerald-300 underline-offset-2 hover:underline"
+        >
+          Change priorities
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -674,6 +731,7 @@ export function Dashboard({
   const decisionQuery = useLatestDecision(householdId, { isImpersonating });
   const readingsQuery = useHouseholdReadings(householdId);
   const readoutQuery = useWeeklyReadout(householdId);
+  const outcomeRanksQuery = useOutcomeRanks(householdId, { isImpersonating });
 
   const loading = householdQuery.loading || snapshotQuery.loading || decisionQuery.loading;
   const queryError = householdQuery.error?.message ?? snapshotQuery.error?.message ?? decisionQuery.error?.message;
@@ -815,7 +873,16 @@ export function Dashboard({
   const finalMode = decision?.reasoning?.final?.mode ?? decision?.mode;
   const harmonyInfluenced = decision?.harmony_influenced ?? false;
 
-  const modeContextLine = buildModeContextLine(decision ?? undefined, reason);
+  const topPrioritiesLabel = formatTopPriorities(outcomeRanksQuery.ranks, 3);
+  // Healthy = live snapshot + a real decision + not in the “awaiting first readings” path.
+  // Never claim “optimising” when impersonation/awaiting notices mean data is incomplete.
+  const prioritiesDataHealthy = Boolean(
+    hasLiveSnapshot && decision && !awaitingLiveData && !statusNotice,
+  );
+  const modeContextLine = buildModeContextLine(decision ?? undefined, reason, {
+    topPrioritiesLabel,
+    dataHealthy: prioritiesDataHealthy,
+  });
   const friendlyReason = buildFriendlyReason(reason, String(mode));
 
   const yesterdaySavings = formatSavingsAud(snapshot?.yesterday_savings_aud);
@@ -1065,6 +1132,17 @@ export function Dashboard({
 
       <OperatingModesSection activeMode={String(mode)} controlMode={agentControlMode} />
 
+      {!outcomeRanksQuery.loading && (
+        <OutcomePrioritiesBanner
+          topPrioritiesLabel={topPrioritiesLabel}
+          dataHealthy={prioritiesDataHealthy}
+          hasSavedRow={outcomeRanksQuery.hasSavedRow}
+          onChangePriorities={
+            onOpenProfile ? () => onOpenProfile("#priorities") : undefined
+          }
+        />
+      )}
+
       {awaitingLiveData || !decision ? (
         <PreparingDecisionsPanel />
       ) : (
@@ -1072,7 +1150,11 @@ export function Dashboard({
         <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
           <h2 className="text-lg font-medium text-emerald-400">Today&apos;s energy decision</h2>
             <>
-              <DecisionSummaryBlock decision={decision} />
+              <DecisionSummaryBlock
+                decision={decision}
+                topPrioritiesLabel={topPrioritiesLabel}
+                dataHealthy={prioritiesDataHealthy}
+              />
               <dl className="mt-5 space-y-3 border-t border-slate-700/80 pt-4 text-sm">
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">First suggestion</dt><dd>{formatModeLabel(String(proposedMode ?? mode))}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">Mode in use</dt><dd>{formatModeLabel(String(finalMode ?? mode))}</dd></div>
