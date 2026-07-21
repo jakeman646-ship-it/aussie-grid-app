@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.34
- * Updated: 21 Jul 2026 — user outcome priorities line (P0 suggest-only).
+ * Version: v0.1.2.35
+ * Updated: 21 Jul 2026 — priorities strip moved under connection status.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -1018,6 +1018,17 @@ export function Dashboard({
         </div>
       )}
 
+      {!outcomeRanksQuery.loading && (
+        <OutcomePrioritiesBanner
+          topPrioritiesLabel={topPrioritiesLabel}
+          dataHealthy={prioritiesDataHealthy}
+          hasSavedRow={outcomeRanksQuery.hasSavedRow}
+          onChangePriorities={
+            onOpenProfile ? () => onOpenProfile("#priorities") : undefined
+          }
+        />
+      )}
+
       {effectivePending && <PendingRequestBanner />}
 
       {/* Connection Health + Energy Systems (customerFacing when impersonating). */}
@@ -1131,17 +1142,6 @@ export function Dashboard({
       )}
 
       <OperatingModesSection activeMode={String(mode)} controlMode={agentControlMode} />
-
-      {!outcomeRanksQuery.loading && (
-        <OutcomePrioritiesBanner
-          topPrioritiesLabel={topPrioritiesLabel}
-          dataHealthy={prioritiesDataHealthy}
-          hasSavedRow={outcomeRanksQuery.hasSavedRow}
-          onChangePriorities={
-            onOpenProfile ? () => onOpenProfile("#priorities") : undefined
-          }
-        />
-      )}
 
       {awaitingLiveData || !decision ? (
         <PreparingDecisionsPanel />
