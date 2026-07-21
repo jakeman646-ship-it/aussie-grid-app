@@ -1,8 +1,8 @@
 /**
- * Aussie Grid — User-ranked outcome types
+ * Aussie Grid - User-ranked outcome types
  * File: src/types/outcomeRanks.ts
- * Version: v0.1.0
- * Updated: 21 Jul 2026 — P0 suggest-only outcome ranks.
+ * Version: v0.1.1
+ * Updated: 21 Jul 2026 - P0 suggest-only outcome ranks (UTF-8).
  */
 
 export const OUTCOME_KEYS = [
@@ -16,7 +16,7 @@ export const OUTCOME_KEYS = [
 
 export type OutcomeKey = (typeof OUTCOME_KEYS)[number];
 
-/** Map of outcome key ? rank 1 (most important) through 6 (least). */
+/** Map of outcome key -> rank 1 (most important) through 6 (least). */
 export type OutcomeRanks = Record<OutcomeKey, number>;
 
 export type OutcomeRankSource = "default" | "user" | "ops_seed";

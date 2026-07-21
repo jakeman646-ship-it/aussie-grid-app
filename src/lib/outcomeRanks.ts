@@ -1,8 +1,8 @@
 /**
- * Aussie Grid — Outcome ranks helpers
+ * Aussie Grid - Outcome ranks helpers
  * File: src/lib/outcomeRanks.ts
- * Version: v0.1.0
- * Updated: 21 Jul 2026 — P0 defaults + labels + validation (Mackay/Ergon-first).
+ * Version: v0.1.1
+ * Updated: 21 Jul 2026 - P0 defaults + labels + validation (UTF-8).
  */
 import {
   OUTCOME_KEYS,
@@ -35,7 +35,7 @@ export function sortKeysByRank(ranks: OutcomeRanks): OutcomeKey[] {
   return [...OUTCOME_KEYS].sort((a, b) => ranks[a] - ranks[b]);
 }
 
-/** Build ranks map from an ordered list (index 0 ? rank 1). */
+/** Build ranks map from an ordered list (index 0 -> rank 1). */
 export function ranksFromOrderedKeys(ordered: OutcomeKey[]): OutcomeRanks {
   const next = { ...DEFAULT_OUTCOME_RANKS };
   ordered.forEach((key, index) => {
@@ -45,16 +45,16 @@ export function ranksFromOrderedKeys(ordered: OutcomeKey[]): OutcomeRanks {
 }
 
 /**
- * Top n priorities as "Bill savings ? Self-consumption ? …".
+ * Top n priorities as "Bill savings -> Self-consumption -> ...".
  */
 export function formatTopPriorities(ranks: OutcomeRanks, n = 3): string {
   return sortKeysByRank(ranks)
     .slice(0, Math.max(1, Math.min(n, OUTCOME_KEYS.length)))
     .map((key) => OUTCOME_LABELS[key])
-    .join(" ? ");
+    .join(" -> ");
 }
 
-/** True when all six keys present with unique ranks 1–6. */
+/** True when all six keys present with unique ranks 1-6. */
 export function validateRanks(ranks: unknown): ranks is OutcomeRanks {
   if (!ranks || typeof ranks !== "object") return false;
   const obj = ranks as Record<string, unknown>;

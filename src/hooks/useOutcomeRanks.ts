@@ -1,8 +1,8 @@
 /**
- * Aussie Grid ù useOutcomeRanks hook
+ * Aussie Grid - useOutcomeRanks hook
  * File: src/hooks/useOutcomeRanks.ts
- * Version: v0.1.0
- * Updated: 21 Jul 2026 ù P0 versioned ranks; impersonation read-only.
+ * Version: v0.1.1
+ * Updated: 21 Jul 2026 - P0 versioned ranks; impersonation read-only (UTF-8).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
@@ -25,9 +25,9 @@ interface UseOutcomeRanksOptions {
 }
 
 interface UseOutcomeRanksResult {
-  /** Current ranks (DB row or pilot defaults ù no inventing a DB row until save). */
+  /** Current ranks (DB row or pilot defaults - no inventing a DB row until save). */
   ranks: OutcomeRanks;
-  /** Keys ordered most ? least important. */
+  /** Keys ordered most -> least important. */
   orderedKeys: OutcomeKey[];
   /** True when a current DB row exists (effective_to IS NULL). */
   hasSavedRow: boolean;
@@ -36,12 +36,12 @@ interface UseOutcomeRanksResult {
   error: Error | null;
   saveError: string | null;
   saveSuccess: string | null;
-  /** Impersonation or missing household ? no writes. */
+  /** Impersonation or missing household - no writes. */
   isReadOnly: boolean;
   refetch: () => Promise<void>;
   /**
    * Close previous current row (effective_to = now) and insert new source=user.
-   * Soft-seeds on first save only ù does not invent rows on load.
+   * Soft-seeds on first save only - does not invent rows on load.
    */
   saveOrderedKeys: (ordered: OutcomeKey[]) => Promise<boolean>;
   clearSaveFeedback: () => void;
@@ -101,7 +101,7 @@ export function useOutcomeRanks(
         setRowId(null);
       }
     } catch (err) {
-      // Table missing / RLS / network ù fall back to defaults for UI.
+      // Table missing / RLS / network - fall back to defaults for UI.
       setRanks({ ...DEFAULT_OUTCOME_RANKS });
       setHasSavedRow(false);
       setRowId(null);
@@ -123,13 +123,13 @@ export function useOutcomeRanks(
   const saveOrderedKeys = useCallback(
     async (ordered: OutcomeKey[]): Promise<boolean> => {
       if (isReadOnly) {
-        setSaveError("Priorities canùt be changed while viewing another household.");
+        setSaveError("Priorities can't be changed while viewing another household.");
         return false;
       }
 
       const nextRanks = ranksFromOrderedKeys(ordered);
       if (!validateRanks(nextRanks)) {
-        setSaveError("Priorities must include each outcome once (ranks 1ù6).");
+        setSaveError("Priorities must include each outcome once (ranks 1-6).");
         return false;
       }
 
