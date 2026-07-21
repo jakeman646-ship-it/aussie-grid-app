@@ -1,8 +1,8 @@
 /**
  * Aussie Grid - useOutcomeRanks hook
  * File: src/hooks/useOutcomeRanks.ts
- * Version: v0.1.1
- * Updated: 21 Jul 2026 - P0 versioned ranks; impersonation read-only (UTF-8).
+ * Version: v0.1.2
+ * Updated: 21 Jul 2026 - P0 editable ranks; notify Dashboard after save.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
@@ -18,6 +18,9 @@ import type {
   OutcomeKey,
   OutcomeRanks,
 } from "@/types/outcomeRanks";
+
+/** Fired after a successful user save so other mounted views (Dashboard) refetch. */
+export const OUTCOME_RANKS_UPDATED_EVENT = "aussie-grid:outcome-ranks-updated";
 
 interface UseOutcomeRanksOptions {
   /** When true, ranks are view-only (no save). */
@@ -63,57 +66,76 @@ export function useOutcomeRanks(
 
   const isReadOnly = isImpersonating || !householdId;
 
-  const fetchRanks = useCallback(async () => {
-    if (!householdId) {
-      setRanks({ ...DEFAULT_OUTCOME_RANKS });
-      setHasSavedRow(false);
-      setRowId(null);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { data: row, error: queryError } = await supabase
-        .from("household_outcome_ranks")
-        .select(
-          "id, household_id, effective_from, effective_to, ranks, source, updated_by, created_at",
-        )
-        .eq("household_id", householdId)
-        .is("effective_to", null)
-        .order("effective_from", { ascending: false })
-        .limit(1)
-        .abortSignal(queryTimeout())
-        .maybeSingle();
-
-      if (queryError) throw queryError;
-
-      if (row) {
-        const typed = row as HouseholdOutcomeRanksRow;
-        setRanks(coerceRanks(typed.ranks));
-        setHasSavedRow(true);
-        setRowId(typed.id);
-      } else {
+  const fetchRanks = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!householdId) {
         setRanks({ ...DEFAULT_OUTCOME_RANKS });
         setHasSavedRow(false);
         setRowId(null);
+        setLoading(false);
+        return;
       }
-    } catch (err) {
-      // Table missing / RLS / network - fall back to defaults for UI.
-      setRanks({ ...DEFAULT_OUTCOME_RANKS });
-      setHasSavedRow(false);
-      setRowId(null);
-      setError(err instanceof Error ? err : new Error("Failed to load outcome ranks"));
-    } finally {
-      setLoading(false);
-    }
-  }, [householdId]);
+
+      if (!opts?.silent) {
+        setLoading(true);
+      }
+      setError(null);
+
+      try {
+        const { data: row, error: queryError } = await supabase
+          .from("household_outcome_ranks")
+          .select(
+            "id, household_id, effective_from, effective_to, ranks, source, updated_by, created_at",
+          )
+          .eq("household_id", householdId)
+          .is("effective_to", null)
+          .order("effective_from", { ascending: false })
+          .limit(1)
+          .abortSignal(queryTimeout())
+          .maybeSingle();
+
+        if (queryError) throw queryError;
+
+        if (row) {
+          const typed = row as HouseholdOutcomeRanksRow;
+          setRanks(coerceRanks(typed.ranks));
+          setHasSavedRow(true);
+          setRowId(typed.id);
+        } else {
+          setRanks({ ...DEFAULT_OUTCOME_RANKS });
+          setHasSavedRow(false);
+          setRowId(null);
+        }
+      } catch (err) {
+        // Table missing / RLS / network - fall back to defaults for UI.
+        setRanks({ ...DEFAULT_OUTCOME_RANKS });
+        setHasSavedRow(false);
+        setRowId(null);
+        setError(err instanceof Error ? err : new Error("Failed to load outcome ranks"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [householdId],
+  );
 
   useEffect(() => {
     void fetchRanks();
   }, [fetchRanks]);
+
+  // Keep Dashboard (kept mounted while Profile is open) in sync after a save.
+  useEffect(() => {
+    if (typeof window === "undefined" || !householdId) return;
+
+    const onUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ householdId?: string }>).detail;
+      if (detail?.householdId && detail.householdId !== householdId) return;
+      void fetchRanks({ silent: true });
+    };
+
+    window.addEventListener(OUTCOME_RANKS_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(OUTCOME_RANKS_UPDATED_EVENT, onUpdated);
+  }, [householdId, fetchRanks]);
 
   const clearSaveFeedback = useCallback(() => {
     setSaveError(null);
@@ -183,7 +205,15 @@ export function useOutcomeRanks(
         setRanks(coerceRanks(typed.ranks));
         setHasSavedRow(true);
         setRowId(typed.id);
-        setSaveSuccess("Priorities saved. Suggestions will reflect these when data is healthy.");
+        setSaveSuccess("Priorities saved.");
+
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(OUTCOME_RANKS_UPDATED_EVENT, {
+              detail: { householdId },
+            }),
+          );
+        }
         return true;
       } catch (err) {
         const message =
@@ -209,7 +239,7 @@ export function useOutcomeRanks(
     saveError,
     saveSuccess,
     isReadOnly,
-    refetch: fetchRanks,
+    refetch: () => fetchRanks(),
     saveOrderedKeys,
     clearSaveFeedback,
   };

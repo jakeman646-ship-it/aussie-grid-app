@@ -1,8 +1,8 @@
-﻿/**
- * Aussie Grid — Profile page
+/**
+ * Aussie Grid - Profile page
  * File: src/components/Profile.tsx
- * Version: v0.1.2.26
- * Updated: 21 Jul 2026 — What matters most (user-ranked outcomes, P0).
+ * Version: v0.1.2.27
+ * Updated: 21 Jul 2026 - Editable What matters most ranker (P0).
  */
 import { useEffect, useState, type FormEvent } from "react";
 import { useImpersonation } from "@/hooks/useImpersonation";
@@ -55,7 +55,9 @@ export default function Profile({
   const { data: household, loading } = usePilotHousehold(effectiveHouseholdId, {
     isImpersonating,
   });
-  const outcomeRanks = useOutcomeRanks(effectiveHouseholdId, { isImpersonating });
+  // Prefer registry household_id once loaded; never write under a mismatched id.
+  const ranksHouseholdId = household?.household_id ?? effectiveHouseholdId;
+  const outcomeRanks = useOutcomeRanks(ranksHouseholdId, { isImpersonating });
 
   const [draftOrder, setDraftOrder] = useState<OutcomeKey[]>(outcomeRanks.orderedKeys);
   const [authEmail, setAuthEmail] = useState<string | null>(null);
@@ -74,14 +76,14 @@ export default function Profile({
     if (!outcomeRanks.loading) {
       setDraftOrder(outcomeRanks.orderedKeys);
     }
-  }, [outcomeRanks.loading, outcomeRanks.orderedKeys, effectiveHouseholdId]);
+  }, [outcomeRanks.loading, outcomeRanks.orderedKeys, ranksHouseholdId]);
 
-  // Scroll to priorities card when opened via Dashboard “Change priorities”.
+  // Scroll to priorities card when opened via Dashboard "Change priorities".
   useEffect(() => {
     const scrollToPriorities = () => {
       if (typeof window === "undefined") return;
       if (window.location.hash !== "#priorities") return;
-      const el = document.getElementById("what-matters-most");
+      const el = document.getElementById("priorities");
       el?.scrollIntoView({ behavior: "smooth", block: "start" });
     };
     scrollToPriorities();
@@ -192,7 +194,12 @@ export default function Profile({
     await outcomeRanks.saveOrderedKeys(draftOrder);
   };
 
-  const displayEmail = authEmail ?? household?.email ?? "—";
+  const handleCancelPriorities = () => {
+    setDraftOrder(outcomeRanks.orderedKeys);
+    outcomeRanks.clearSaveFeedback();
+  };
+
+  const displayEmail = authEmail ?? household?.email ?? "-";
   const prioritiesDirty =
     draftOrder.length === outcomeRanks.orderedKeys.length &&
     draftOrder.some((key, i) => key !== outcomeRanks.orderedKeys[i]);
@@ -204,7 +211,7 @@ export default function Profile({
           onClick={onBack}
           className="mb-6 flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200"
         >
-          ← Back to Dashboard
+          Back to Dashboard
         </button>
 
         <div className="mb-8">
@@ -212,11 +219,6 @@ export default function Profile({
           <p className="mt-2 text-base text-slate-300">
             Manage your pilot account details.
           </p>
-          {isImpersonating && (
-            <p className="mt-2 rounded-lg border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-              Viewing another household — priorities are read-only.
-            </p>
-          )}
         </div>
 
         {/* Account Info Card */}
@@ -235,9 +237,9 @@ export default function Profile({
           </div>
         </div>
 
-        {/* What matters most — user-ranked outcomes (P0 suggest-only) */}
+        {/* What matters most - user-ranked outcomes (P0 suggest-only) */}
         <div
-          id="what-matters-most"
+          id="priorities"
           className="rounded-2xl border border-slate-700 bg-white p-6 text-slate-900 shadow-sm mb-6 scroll-mt-24"
         >
           <div className="mb-4">
@@ -246,10 +248,13 @@ export default function Profile({
               This shapes suggestions and reports. We do not control your inverter in this
               pilot phase.
             </p>
+            {outcomeRanks.isReadOnly && (
+              <p className="mt-2 text-sm text-amber-700">View only while impersonating</p>
+            )}
           </div>
 
           {outcomeRanks.loading ? (
-            <p className="text-sm text-slate-500">Loading priorities…</p>
+            <p className="text-sm text-slate-500">Loading priorities...</p>
           ) : (
             <ol className="space-y-2">
               {draftOrder.map((key, index) => (
@@ -309,22 +314,34 @@ export default function Profile({
           )}
 
           {!outcomeRanks.isReadOnly && (
-            <button
-              type="button"
-              onClick={handleSavePriorities}
-              disabled={
-                outcomeRanks.loading ||
-                outcomeRanks.saving ||
-                signingOut ||
-                !prioritiesDirty
-              }
-              className="mt-5 w-full rounded-xl bg-emerald-600 px-6 py-3.5 text-center text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700 transition disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {outcomeRanks.saving ? "Saving priorities…" : "Save priorities"}
-            </button>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={handleSavePriorities}
+                disabled={
+                  outcomeRanks.loading ||
+                  outcomeRanks.saving ||
+                  signingOut ||
+                  !prioritiesDirty
+                }
+                className="w-full rounded-xl bg-emerald-600 px-6 py-3.5 text-center text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700 transition disabled:cursor-not-allowed disabled:opacity-60 sm:flex-1"
+              >
+                {outcomeRanks.saving ? "Saving…" : "Save priorities"}
+              </button>
+              {prioritiesDirty && (
+                <button
+                  type="button"
+                  onClick={handleCancelPriorities}
+                  disabled={outcomeRanks.saving || signingOut}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50 transition disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[8rem]"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           )}
 
-          {!outcomeRanks.hasSavedRow && !outcomeRanks.loading && (
+          {!outcomeRanks.hasSavedRow && !outcomeRanks.loading && !outcomeRanks.isReadOnly && (
             <p className="mt-3 text-xs text-slate-500">
               Showing pilot defaults until you save. Saving creates your first ranked
               preferences.
