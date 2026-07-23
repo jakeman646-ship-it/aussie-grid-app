@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — App shell
  * File: src/App.tsx
- * Version: v0.1.2.25
- * Updated: 21 Jul 2026 — Profile #priorities deep-link from Dashboard.
+ * Version: v0.1.2.26
+ * Updated: 24 Jul 2026 — resolve household from auth email; DEV-only test default (security 2).
  */
 import { Component, Suspense, useEffect, useState, useTransition, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
@@ -10,6 +10,7 @@ import { lazyWithReload } from './lib/lazyRetry';
 import {
   clearCurrentHouseholdId,
   getCurrentHouseholdId,
+  resolveHouseholdIdForSession,
   setCurrentHouseholdId,
 } from './lib/currentHousehold';
 import { supabase } from './lib/supabase';
@@ -122,6 +123,22 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Map signed-in email → pilot_households when possible; never default prod to sungrow-test-001.
+  useEffect(() => {
+    if (!session?.user) return;
+
+    let cancelled = false;
+
+    resolveHouseholdIdForSession(session.user.email).then((householdId) => {
+      if (cancelled) return;
+      setCurrentUserId(householdId || getCurrentHouseholdId());
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   // Transition-based navigation keeps the current page visible and the nav
   // clickable while the next view's chunk loads, instead of swapping the whole

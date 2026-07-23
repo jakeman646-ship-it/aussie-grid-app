@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.35
- * Updated: 21 Jul 2026 — priorities strip moved under connection status.
+ * Version: v0.1.2.36
+ * Updated: 24 Jul 2026 — DEV-only household switcher; block agent control when impersonating.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -477,12 +477,11 @@ function DevHouseholdSwitcher({
   currentId: string;
   onSwitch?: (id: string) => void;
 }) {
-  const isDev = import.meta.env.DEV;
-  const looksLikeTest = currentId.includes("test") || currentId.includes("pilot") || currentId.includes("mackay");
-  if (!isDev && !looksLikeTest) return null;
+  // Production must never show this — DEV only (security 2).
+  if (!import.meta.env.DEV) return null;
 
   const options = [
-    { id: currentId, label: `${currentId} (current)` },
+    { id: currentId, label: `${currentId || "(none)"} (current)` },
     ...DEV_TEST_HOUSEHOLDS.filter((h) => h.id !== currentId),
   ];
 
@@ -490,7 +489,7 @@ function DevHouseholdSwitcher({
     <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-950/30 px-2.5 py-1 text-[10px]">
       <span className="font-mono font-semibold text-amber-400">DEV</span>
       <select
-        value={currentId}
+        value={currentId || DEV_TEST_HOUSEHOLDS[0]?.id || ""}
         onChange={(e) => onSwitch?.(e.target.value)}
         className="bg-slate-950 border border-slate-700 text-amber-200 text-xs rounded px-1.5 py-0.5 focus:outline-none focus:border-amber-500"
       >
@@ -1049,6 +1048,7 @@ export function Dashboard({
         householdId={householdId}
         mode={agentControlMode}
         isConnected={householdConnected}
+        isImpersonating={isImpersonating}
         onActivated={() => householdQuery.refetch()}
       />
 
