@@ -2,7 +2,7 @@
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
  * Version: v0.1.2.36
- * Updated: 1 Aug 2026 — show snapshot permission errors while impersonating.
+ * Updated: 1 Aug 2026 — pass lastReadingAt into Connection Health / Energy Systems.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -1040,11 +1040,13 @@ export function Dashboard({
           householdId={householdId}
           inverterMake={household?.inverter_make}
           customerFacing={energySystemsCustomerFacing}
+          lastReadingAt={hasLiveSnapshot ? snapshot?.last_updated ?? null : null}
         />
         <EnergySystemsSection
           householdId={householdId}
           inverterMake={household?.inverter_make}
           customerFacing={energySystemsCustomerFacing}
+          lastReadingAt={hasLiveSnapshot ? snapshot?.last_updated ?? null : null}
         />
       </div>
 

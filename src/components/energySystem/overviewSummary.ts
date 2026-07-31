@@ -1,15 +1,16 @@
 /**
  * Aussie Grid — Energy systems overview summary (shared)
  * File: src/components/energySystem/overviewSummary.ts
- * Version: v0.2.0
- * Updated: 18 Jul 2026 — mixed-status flag for glance UI
+ * Version: v0.3.0
+ * Updated: 1 Aug 2026 — Sungrow status from household_readings freshness (not Sigenergy-only)
  *
  * Read-only counts for Dashboard glance + EnergySystemsSection header.
- * Mirrors OEM overview visibility without changing adapter behaviour.
+ * Never invents "connected" from OAuth / tokens alone — readings required for Sungrow.
  */
 import type { EnergySystemConnectionStatus } from "@/types/energySystemStatus";
 import {
   detectOemFromInverterMake,
+  isHouseholdReadingFresh,
   shouldHideOemCardOnOverview,
 } from "./statusPresentation";
 
@@ -30,6 +31,8 @@ export type EnergySystemsOverviewSummary = {
    * (e.g. some Connected + some Data Not Ready).
    */
   mixed: boolean;
+  /** True when Sungrow is scored from a fresh household_readings row. */
+  sungrowMonitoring: boolean;
 };
 
 export function buildEnergySystemsOverviewSummary(opts: {
@@ -37,6 +40,11 @@ export function buildEnergySystemsOverviewSummary(opts: {
   sigenergyStatus: EnergySystemConnectionStatus;
   sigenergySystemId: string | null;
   sigenergyLoading: boolean;
+  /**
+   * Latest household_readings.timestamp (ISO). Used for Sungrow honesty.
+   * Do not pass "now" placeholders — omit/null when no real reading.
+   */
+  lastReadingAt?: string | null;
 }): EnergySystemsOverviewSummary {
   const summary: EnergySystemsOverviewSummary = {
     connected: 0,
@@ -48,6 +56,7 @@ export function buildEnergySystemsOverviewSummary(opts: {
     overall: "not_configured",
     needAttention: 0,
     mixed: false,
+    sungrowMonitoring: false,
   };
 
   const hasSigenergyId = Boolean(opts.sigenergySystemId?.trim());
@@ -85,9 +94,17 @@ export function buildEnergySystemsOverviewSummary(opts: {
     inverterMake: opts.inverterMake,
     oemId: "sungrow",
   });
+
+  // Sungrow: score from household_readings freshness only (never token / connected_at).
   if (!hideSungrow && detected === "sungrow") {
     summary.visible += 1;
-    summary.notConfigured += 1;
+    if (isHouseholdReadingFresh(opts.lastReadingAt)) {
+      summary.connected += 1;
+      summary.sungrowMonitoring = true;
+    } else {
+      // Known Sungrow site but stale or missing readings — preparing data, not "Not Configured".
+      summary.notReady += 1;
+    }
   }
 
   summary.configured = summary.connected + summary.notReady;
@@ -99,11 +116,21 @@ export function buildEnergySystemsOverviewSummary(opts: {
     (summary.notConfigured > 0 ? 1 : 0);
   summary.mixed = !summary.checking && summary.visible > 1 && activeBuckets > 1;
 
-  if (summary.notConfigured > 0 || summary.visible === 0) {
+  if (summary.visible === 0) {
     summary.overall = "not_configured";
-  } else if (summary.notReady > 0) {
-    summary.overall = "data_not_ready";
+  } else if (summary.notConfigured > 0 && summary.connected === 0 && summary.notReady === 0) {
+    summary.overall = "not_configured";
+  } else if (summary.connected === 0 && (summary.notReady > 0 || summary.notConfigured > 0)) {
+    summary.overall = summary.notReady > 0 ? "data_not_ready" : "not_configured";
+  } else if (summary.notReady > 0 || summary.notConfigured > 0) {
+    // Mixed: worst non-connected bucket for badge colouring; mixed flag handles label.
+    summary.overall = summary.notConfigured > 0 ? "not_configured" : "data_not_ready";
   } else {
+    summary.overall = "connected";
+  }
+
+  // Prefer connected overall when any system is monitoring from live readings.
+  if (summary.connected > 0 && summary.notConfigured === 0 && summary.notReady === 0) {
     summary.overall = "connected";
   }
 

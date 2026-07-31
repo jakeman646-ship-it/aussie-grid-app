@@ -8,6 +8,7 @@ export { useWeeklyReadout } from "./useWeeklyReadout";
 export { useImpersonation, stopImpersonating } from "./useImpersonation";
 export { useSigenergyStatus } from "./useSigenergyStatus";
 export type { SigenergyUiStatus } from "./useSigenergyStatus";
+export { useLatestReadingAt } from "./useLatestReadingAt";
 export type {
   EnergySystemOemId,
   EnergySystemConnectionStatus,

@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Energy Systems section (Dashboard overview)
  * File: src/components/energySystem/EnergySystemsSection.tsx
- * Version: v0.10.0
- * Updated: 19 Jul 2026 — customerFacing mode hides ops stubs / dry-run tooling
+ * Version: v0.11.0
+ * Updated: 1 Aug 2026 — Sungrow monitoring from household_readings; hide Sigenergy empty for Sungrow
  *
  * Clean household overview wrapper for OEM status adapters.
  * Mounts Sigenergy today; Sungrow stub (and future Tesla) sit beside it
@@ -15,6 +15,7 @@
 import { useMemo, useState } from "react";
 import { SigenergyConnectionStatus } from "@/components/SigenergyConnectionStatus";
 import { SungrowConnectionStatus } from "@/components/SungrowConnectionStatus";
+import { useLatestReadingAt } from "@/hooks/useLatestReadingAt";
 import { useSigenergyStatus } from "@/hooks/useSigenergyStatus";
 import {
   runSigenergyDryRun,
@@ -28,6 +29,7 @@ import type {
 import {
   detectOemFromInverterMake,
   ENERGY_SYSTEM_STATUS_STYLES,
+  energySystemStatusLabel,
   formatEnergyTimestamp,
   shouldHideOemCardOnOverview,
 } from "./statusPresentation";
@@ -41,7 +43,10 @@ import { EnergySystemsEmptyState } from "./EnergySystemsEmptyState";
 export type EnergySystemsSectionProps = Pick<
   EnergySystemStatusBaseProps,
   "householdId" | "inverterMake" | "customerFacing"
->;
+> & {
+  /** Real latest household_readings.timestamp from live snapshot when available. */
+  lastReadingAt?: string | null;
+};
 
 /** Per-OEM chip after a section-level validation run (dry-run only). */
 type ValidationFeedback = {
@@ -111,6 +116,9 @@ function formatSummaryDetail(
     return "Checking linked systems…";
   }
   if (customerFacing) {
+    if (summary.sungrowMonitoring) {
+      return "Live readings are flowing from your Sungrow system. Monitoring · read-only — not agent control.";
+    }
     if (summary.visible === 0 || summary.configured === 0) {
       return "Connect your inverter to see live connection status here.";
     }
@@ -118,15 +126,15 @@ function formatSummaryDetail(
       return "Some systems still need data before we can show full status.";
     }
     if (summary.connected > 0) {
-      return "Live data is flowing for your linked system. Monitoring only — not agent control.";
+      return "Live data is flowing for your linked system. Monitoring · read-only — not agent control.";
     }
     return "Waiting for the first successful data pull before we mark you connected.";
   }
   if (summary.visible === 0) {
-    return "No linked OEM for this household yet — expand for setup guidance (Sigenergy today).";
+    return "No linked OEM for this household yet — expand for setup guidance.";
   }
   if (summary.configured === 0) {
-    return `${summary.visible} system${summary.visible === 1 ? "" : "s"} listed · none configured with a data path yet. Expand for how to link Sigenergy.`;
+    return `${summary.visible} system${summary.visible === 1 ? "" : "s"} listed · none configured with a data path yet.`;
   }
 
   if (summary.mixed) {
@@ -177,10 +185,14 @@ function resolveOverallBadge(summary: OverviewSummary): {
   }
   const style = ENERGY_SYSTEM_STATUS_STYLES[summary.overall];
   return {
-    label: style.label,
+    label: energySystemStatusLabel(summary.overall, {
+      fromLiveReadings: summary.sungrowMonitoring && summary.overall === "connected",
+    }),
     badgeClass: style.badgeClass,
     dotClass: style.dotClass,
-    title: "Worst status across listed energy systems",
+    title: summary.sungrowMonitoring
+      ? "Live household_readings within 2 hours"
+      : "Worst status across listed energy systems",
   };
 }
 
@@ -243,6 +255,7 @@ export function EnergySystemsSection({
   householdId,
   inverterMake = null,
   customerFacing = false,
+  lastReadingAt: lastReadingAtProp = null,
 }: EnergySystemsSectionProps) {
   const {
     status: sigenergyStatus,
@@ -253,12 +266,21 @@ export function EnergySystemsSection({
     refetch: refetchSigenergy,
   } = useSigenergyStatus(householdId);
 
+  const { lastReadingAt, loading: readingLoading } = useLatestReadingAt(
+    householdId,
+    lastReadingAtProp,
+  );
+
   const summary = buildEnergySystemsOverviewSummary({
     inverterMake,
     sigenergyStatus,
     sigenergySystemId,
     sigenergyLoading,
+    lastReadingAt,
   });
+
+  const oem = detectOemFromInverterMake(inverterMake);
+  const sungrowOnly = oem === "sungrow";
 
   const validationTargets = useMemo(
     () =>
@@ -274,7 +296,7 @@ export function EnergySystemsSection({
   const validatableCount = validatableTargets.length;
 
   const title = customerFacing
-    ? summary.connected > 0
+    ? summary.connected > 0 || summary.sungrowMonitoring
       ? "Your energy system"
       : "Energy system"
     : formatSummaryTitle(summary);
@@ -282,15 +304,20 @@ export function EnergySystemsSection({
   const overallStyle = ENERGY_SYSTEM_STATUS_STYLES[summary.overall];
   const overallBadge = resolveOverallBadge(summary);
 
-  // Prefer last successful pull timestamp; fall back to summary updated_at from lastIngest.
-  const lastIngestAt = lastSuccessAt || lastIngest?.updatedAt || null;
-  const lastIngestHeaderLabel = sigenergyLoading
-    ? customerFacing
-      ? "Last updated: …"
-      : "Last ingest: …"
-    : lastIngestAt
-      ? `${customerFacing ? "Last updated" : "Last ingest"}: ${formatEnergyTimestamp(lastIngestAt)}`
-      : "No recent data";
+  // Sungrow: readings time. Else Sigenergy summary, then readings fallback.
+  const lastIngestAt = sungrowOnly
+    ? lastReadingAt
+    : lastSuccessAt || lastIngest?.updatedAt || lastReadingAt || null;
+  const lastIngestHeaderLabel =
+    sigenergyLoading || readingLoading
+      ? customerFacing
+        ? "Last updated: …"
+        : "Last ingest: …"
+      : lastIngestAt
+        ? `${customerFacing || sungrowOnly ? "Last reading" : "Last ingest"}: ${formatEnergyTimestamp(lastIngestAt)}`
+        : sungrowOnly
+          ? "Waiting on next reading"
+          : "No recent data";
 
   const [expanded, setExpanded] = useState(true);
   const [validating, setValidating] = useState(false);
@@ -416,7 +443,12 @@ export function EnergySystemsSection({
         : "Run read-only dry-run for every configured system that supports validation";
 
   /** No usable data path yet — show setup guidance (does not affect configured homes). */
-  const showEmptyGuidance = !summary.checking && summary.configured === 0;
+  // Hide Sigenergy "Preparing / Accept" empty-state for Sungrow-only homes.
+  const showEmptyGuidance =
+    !summary.checking &&
+    summary.configured === 0 &&
+    !sungrowOnly &&
+    !summary.sungrowMonitoring;
   const emptyVariant = summary.visible === 0 ? "full" : "compact";
 
   const sectionRingClass = summary.mixed
@@ -556,7 +588,28 @@ export function EnergySystemsSection({
         ) : null}
 
         {/* Compact last-ingest metrics — always visible with summary */}
-        <LastIngestHeaderGlance lastIngest={lastIngest} loading={sigenergyLoading} />
+        {!sungrowOnly && (
+          <LastIngestHeaderGlance lastIngest={lastIngest} loading={sigenergyLoading} />
+        )}
+        {sungrowOnly && (
+          <div className="mt-3 border-t border-slate-700/40 pt-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Last reading
+            </p>
+            <p className="mt-1 text-[11px] tabular-nums text-slate-400">
+              {readingLoading
+                ? "…"
+                : lastReadingAt
+                  ? formatEnergyTimestamp(lastReadingAt)
+                  : "Waiting on next reading"}
+            </p>
+            {summary.sungrowMonitoring ? (
+              <p className="mt-0.5 text-[11px] text-emerald-400/80">
+                Monitoring · read-only from live Sungrow readings
+              </p>
+            ) : null}
+          </div>
+        )}
 
         {!expanded && (
           <p className="mt-3 text-[11px] text-slate-500">
@@ -669,12 +722,14 @@ export function EnergySystemsSection({
             </div>
           )}
 
-          {/* Last successful day totals — read-only; from status hook */}
-          <div className="border-b border-slate-700/50 bg-slate-950/25 px-4 py-3 sm:px-5">
-            <LastIngestSummary lastIngest={lastIngest} loading={sigenergyLoading} />
-          </div>
+          {/* Sigenergy day totals — skip for Sungrow-only (avoids "No recent data" noise). */}
+          {!sungrowOnly && (
+            <div className="border-b border-slate-700/50 bg-slate-950/25 px-4 py-3 sm:px-5">
+              <LastIngestSummary lastIngest={lastIngest} loading={sigenergyLoading} />
+            </div>
+          )}
 
-          {/* OEM cards — adapters; customerFacing hides stubs / ops tooling */}
+          {/* OEM cards — adapters; customerFacing hides ops stubs / dry-run tooling */}
           <div className="space-y-3 bg-slate-950/30 p-3 sm:p-4">
             {showEmptyGuidance && (
               <EnergySystemsEmptyState
@@ -684,12 +739,15 @@ export function EnergySystemsSection({
             )}
 
             <div className="space-y-3">
-              <SigenergyConnectionStatus
-                householdId={householdId}
-                variant="overview"
-                inverterMake={inverterMake}
-                customerFacing={customerFacing}
-              />
+              {!sungrowOnly && (
+                <SigenergyConnectionStatus
+                  householdId={householdId}
+                  variant="overview"
+                  inverterMake={inverterMake}
+                  customerFacing={customerFacing}
+                />
+              )}
+              {/* Ops-only stub — never show "not implemented" under customerFacing impersonation. */}
               {!customerFacing && (
                 <SungrowConnectionStatus
                   householdId={householdId}

@@ -1,21 +1,30 @@
 /**
  * Aussie Grid — Connection Health summary (Dashboard)
  * File: src/components/energySystem/ConnectionHealthSummary.tsx
- * Version: v0.2.0
- * Updated: 19 Jul 2026 — customerFacing copy for impersonation
+ * Version: v0.3.0
+ * Updated: 1 Aug 2026 — Sungrow last-ingest from household_readings; Monitoring label
  *
  * Compact top-level glance above EnergySystemsSection.
- * Read-only — no writes, no control, never invents "connected".
+ * Read-only — no writes, no control, never invents "connected" from OAuth alone.
  */
+import { useLatestReadingAt } from "@/hooks/useLatestReadingAt";
 import { useSigenergyStatus } from "@/hooks/useSigenergyStatus";
 import type { EnergySystemStatusBaseProps } from "@/types/energySystemStatus";
-import { ENERGY_SYSTEM_STATUS_STYLES, formatEnergyTimestamp } from "./statusPresentation";
+import {
+  detectOemFromInverterMake,
+  ENERGY_SYSTEM_STATUS_STYLES,
+  energySystemStatusLabel,
+  formatEnergyTimestamp,
+} from "./statusPresentation";
 import { buildEnergySystemsOverviewSummary } from "./overviewSummary";
 
 export type ConnectionHealthSummaryProps = Pick<
   EnergySystemStatusBaseProps,
   "householdId" | "inverterMake" | "customerFacing"
->;
+> & {
+  /** Real latest household_readings.timestamp from live snapshot when available. */
+  lastReadingAt?: string | null;
+};
 
 /**
  * Household connection health at a glance — sits above Energy Systems.
@@ -24,6 +33,7 @@ export function ConnectionHealthSummary({
   householdId,
   inverterMake = null,
   customerFacing = false,
+  lastReadingAt: lastReadingAtProp = null,
 }: ConnectionHealthSummaryProps) {
   const {
     status: sigenergyStatus,
@@ -33,20 +43,39 @@ export function ConnectionHealthSummary({
     lastIngest,
   } = useSigenergyStatus(householdId);
 
+  const { lastReadingAt, loading: readingLoading } = useLatestReadingAt(
+    householdId,
+    lastReadingAtProp,
+  );
+
   const summary = buildEnergySystemsOverviewSummary({
     inverterMake,
     sigenergyStatus,
     sigenergySystemId,
     sigenergyLoading,
+    lastReadingAt,
   });
 
+  const oem = detectOemFromInverterMake(inverterMake);
+  const sungrowOnly = oem === "sungrow";
+  const fromLiveReadings = summary.sungrowMonitoring;
+
   const overallStyle = ENERGY_SYSTEM_STATUS_STYLES[summary.overall];
-  const lastIngestAt = lastSuccessAt || lastIngest?.updatedAt || null;
-  const lastIngestLabel = sigenergyLoading
-    ? "…"
-    : lastIngestAt
-      ? formatEnergyTimestamp(lastIngestAt)
-      : "No recent data";
+  const badgeStatusLabel = energySystemStatusLabel(summary.overall, {
+    customerFacing,
+    fromLiveReadings: fromLiveReadings && summary.overall === "connected",
+  });
+
+  // Sungrow: last successful ingest = latest reading time (not Sigenergy summary).
+  const lastIngestAt = sungrowOnly
+    ? lastReadingAt
+    : lastSuccessAt || lastIngest?.updatedAt || lastReadingAt || null;
+  const lastIngestLabel =
+    sigenergyLoading || readingLoading
+      ? "…"
+      : lastIngestAt
+        ? formatEnergyTimestamp(lastIngestAt)
+        : "No recent data";
 
   if (summary.checking) {
     return (
@@ -101,7 +130,7 @@ export function ConnectionHealthSummary({
     );
   }
 
-  const badgeLabel = summary.mixed ? "Mixed" : overallStyle.label;
+  const badgeLabel = summary.mixed ? "Mixed" : badgeStatusLabel;
   const badgeClass = summary.mixed
     ? "bg-amber-900/50 text-amber-100 ring-1 ring-amber-500/45"
     : overallStyle.badgeClass;
@@ -109,6 +138,11 @@ export function ConnectionHealthSummary({
   const ringClass = summary.mixed ? "border-amber-600/45" : overallStyle.ringClass;
   const attentionTone =
     summary.needAttention > 0 ? "text-amber-200" : "text-slate-400";
+
+  const connectedPhrase =
+    fromLiveReadings && customerFacing
+      ? `${summary.connected} monitoring`
+      : `${summary.connected} connected`;
 
   return (
     <div
@@ -134,9 +168,7 @@ export function ConnectionHealthSummary({
               </>
             ) : (
               <>
-                <span className="tabular-nums text-emerald-300">
-                  {summary.connected} connected
-                </span>
+                <span className="tabular-nums text-emerald-300">{connectedPhrase}</span>
                 <span className="text-slate-500"> · </span>
                 <span className={`tabular-nums ${attentionTone}`}>
                   {summary.needAttention === 0
@@ -147,10 +179,12 @@ export function ConnectionHealthSummary({
             )}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Last successful ingest:{" "}
+            {sungrowOnly ? "Last reading: " : "Last successful ingest: "}
             <span className="tabular-nums text-slate-400">{lastIngestLabel}</span>
             {" · "}
-            monitoring only — never from Accept alone
+            {fromLiveReadings
+              ? "Monitoring · read-only — from live readings, not Accept alone"
+              : "monitoring only — never from Accept alone"}
           </p>
         </div>
 
@@ -159,7 +193,9 @@ export function ConnectionHealthSummary({
           title={
             summary.mixed
               ? `Mixed statuses — worst: ${overallStyle.label}`
-              : "Overall household energy-system status"
+              : fromLiveReadings
+                ? "Live household_readings within 2 hours"
+                : "Overall household energy-system status"
           }
         >
           <span className={`h-2 w-2 rounded-full ${badgeDot}`} aria-hidden />
@@ -167,10 +203,11 @@ export function ConnectionHealthSummary({
         </span>
       </div>
 
-      {/* Compact metric chips — scannable, not a dashboard of cards */}
       <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-700/45 pt-3 sm:max-w-lg">
         <div className="rounded-md bg-slate-950/45 px-2.5 py-1.5">
-          <dt className="text-[10px] uppercase tracking-wide text-slate-500">Connected</dt>
+          <dt className="text-[10px] uppercase tracking-wide text-slate-500">
+            {fromLiveReadings ? "Monitoring" : "Connected"}
+          </dt>
           <dd className="mt-0.5 text-sm font-semibold tabular-nums text-emerald-300">
             {summary.connected}
           </dd>

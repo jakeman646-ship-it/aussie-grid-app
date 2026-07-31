@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Energy system status presentation helpers
  * File: src/components/energySystem/statusPresentation.ts
- * Version: v0.1.0
- * Updated: 18 Jul 2026
+ * Version: v0.2.0
+ * Updated: 1 Aug 2026 — reading freshness + Monitoring · read-only label
  *
  * Shared badge styles + overview visibility rules for OEM status cards.
  * Adapters (SigenergyConnectionStatus, future Sungrow/Tesla) reuse these
@@ -15,6 +15,22 @@ import type {
   EnergySystemStatusPresentation,
   EnergySystemStatusVariant,
 } from "@/types/energySystemStatus";
+
+/** Fresh household_readings window for Sungrow "monitoring live" (2 hours). */
+export const READING_FRESH_MS = 2 * 60 * 60 * 1000;
+
+/** True when lastReadingAt is a real timestamp within the freshness window. */
+export function isHouseholdReadingFresh(
+  lastReadingAt: string | null | undefined,
+  nowMs: number = Date.now(),
+  windowMs: number = READING_FRESH_MS,
+): boolean {
+  if (!lastReadingAt) return false;
+  const t = Date.parse(lastReadingAt);
+  if (!Number.isFinite(t)) return false;
+  const age = nowMs - t;
+  return age >= 0 && age <= windowMs;
+}
 
 /** Default badge / ring styles for the three honest connection states. */
 export const ENERGY_SYSTEM_STATUS_STYLES: Record<
@@ -40,6 +56,23 @@ export const ENERGY_SYSTEM_STATUS_STYLES: Record<
     ringClass: "border-slate-700/80",
   },
 };
+
+/**
+ * Household-facing badge text. Readings-backed "connected" → Monitoring · read-only
+ * (never implies agent control or retailer bill).
+ */
+export function energySystemStatusLabel(
+  status: EnergySystemConnectionStatus,
+  opts?: { customerFacing?: boolean; fromLiveReadings?: boolean },
+): string {
+  if (
+    status === "connected" &&
+    (opts?.fromLiveReadings || opts?.customerFacing)
+  ) {
+    return "Monitoring · read-only";
+  }
+  return ENERGY_SYSTEM_STATUS_STYLES[status].label;
+}
 
 /**
  * Best-effort OEM guess from pilot_households.inverter_make.
