@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — useSigenergyStatus
  * File: src/hooks/useSigenergyStatus.ts
- * Version: v0.2.0
- * Updated: 18 Jul 2026 — expose lastIngest day totals for Energy Systems summary
+ * Version: v0.2.1
+ * Updated: 1 Aug 2026 — drop ungranted sigenergy_system_id from pilot_households select
  *
  * Best-effort Sigenergy ingest visibility for the household dashboard.
  * Soft-fails to placeholder "not_configured" / "data_not_ready" — never invents connected.
@@ -145,24 +145,25 @@ export function useSigenergyStatus(householdId: string): SigenergyStatusView {
         let sid: string | null = null;
         let make: string | null = null;
 
-        // Optional column — may be missing until migration; soft-fail.
+        // Safe columns only (harden_connection_rls GRANT) — never select ungranted cols
+        // like sigenergy_system_id (PostgREST 403). Soft-fail if row missing.
         try {
           const { data: hh } = await supabase
             .from("pilot_households")
-            .select("inverter_make, sigenergy_system_id, inverter_serial")
+            .select("inverter_make, inverter_serial")
             .eq("household_id", householdId)
             .abortSignal(queryTimeout())
             .maybeSingle();
           if (hh) {
             make = (hh.inverter_make as string | null) || null;
+            // Sigenergy system id not granted to anon/authenticated — use serial when make is Sigenergy.
             sid =
-              ((hh as { sigenergy_system_id?: string | null }).sigenergy_system_id || "").trim() ||
-              (make && make.toLowerCase().includes("sigenergy")
+              make && make.toLowerCase().includes("sigenergy")
                 ? ((hh.inverter_serial as string | null) || "").trim() || null
-                : null);
+                : null;
           }
         } catch {
-          /* column may not exist for anon */
+          /* registry read may fail under RLS — leave not_configured */
         }
 
         let summary: SummaryRow | null = null;

@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.25
- * Updated: 1 Aug 2026 — select battery_soc_percent (DB) into UI battery_soc field.
+ * Version: v0.1.2.26
+ * Updated: 1 Aug 2026 — impersonation: surface RLS/PostgREST errors (no silent Preparing).
  */
 import { useState, useEffect } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
@@ -38,6 +38,37 @@ interface UseHouseholdSnapshotResult {
   loading: boolean;
   error: Error | null;
   refetch: () => void;
+}
+
+/** PostgREST / RLS failures that must not look like "waiting on first pull". */
+function isLikelyPermissionOrSchemaError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; message?: string; status?: number };
+  const msg = (e.message ?? "").toLowerCase();
+  const code = String(e.code ?? "");
+  if (e.status === 401 || e.status === 403) return true;
+  if (code === "42501" || code === "PGRST301" || code === "PGRST302") return true;
+  if (/permission denied|not authorized|jwt|row-level security|rls|403|401/i.test(msg)) {
+    return true;
+  }
+  // Unknown column / schema drift (should be rare after battery_soc_percent fix).
+  if (/column .* does not exist|could not find.*column/i.test(msg)) return true;
+  return false;
+}
+
+function formatSnapshotFetchError(err: unknown): string {
+  if (isLikelyPermissionOrSchemaError(err)) {
+    return (
+      "Cannot load live readings (permission or schema). " +
+      "Check household_readings RLS / grants for this signed-in account."
+    );
+  }
+  if (err instanceof Error && err.message.trim()) return err.message;
+  if (err && typeof err === "object" && "message" in err) {
+    const m = String((err as { message?: string }).message ?? "").trim();
+    if (m) return m;
+  }
+  return "Failed to load household snapshot";
 }
 
 /** Minimal snapshot before telemetry exists (impersonation / new connection). */
@@ -162,12 +193,17 @@ export function useHouseholdSnapshot(
       setData(snapshot);
     } catch (err) {
       console.error("useHouseholdSnapshot error:", err);
-      // During admin impersonation, a failed snapshot fetch should not look like a broken dashboard.
-      if (isImpersonating) {
+      const message = formatSnapshotFetchError(err);
+      // Impersonation: do not swallow RLS / PostgREST failures as silent "Preparing".
+      // Empty/no-rows still becomes a calm empty snapshot; permission errors surface.
+      if (isImpersonating && isLikelyPermissionOrSchemaError(err)) {
+        setData(buildEmptySnapshot(householdId));
+        setError(new Error(message));
+      } else if (isImpersonating) {
         setData(buildEmptySnapshot(householdId));
         setError(null);
       } else {
-        setError(err instanceof Error ? err : new Error("Failed to load household snapshot"));
+        setError(err instanceof Error ? err : new Error(message));
         setData(null);
       }
     } finally {

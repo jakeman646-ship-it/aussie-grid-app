@@ -2,7 +2,7 @@
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
  * Version: v0.1.2.36
- * Updated: 24 Jul 2026 — DEV-only household switcher; block agent control when impersonating.
+ * Updated: 1 Aug 2026 — show snapshot permission errors while impersonating.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -973,9 +973,13 @@ export function Dashboard({
         <WarningBanner message="This deployment is missing its database configuration (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY). Live data can't load until these are set in Vercel project settings." />
       )}
 
-      {queryError && !isImpersonating && (
+      {queryError && (
         <WarningBanner
-          message={`Data temporarily unavailable: ${queryError}. You can still connect your system below — this is normal for new pilot households.`}
+          message={
+            isImpersonating
+              ? queryError
+              : `Data temporarily unavailable: ${queryError}. You can still connect your system below — this is normal for new pilot households.`
+          }
         />
       )}
 
