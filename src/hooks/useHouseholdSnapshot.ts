@@ -1,9 +1,8 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.24
- * Lines: 175
- * Updated: 9 Jul 2026 — impersonation mode: fetch failures degrade to empty snapshot, not errors.
+ * Version: v0.1.2.25
+ * Updated: 1 Aug 2026 — select battery_soc_percent (DB) into UI battery_soc field.
  */
 import { useState, useEffect } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
@@ -79,7 +78,9 @@ export function useHouseholdSnapshot(
       const [readingsResult, savingsLogResult] = await Promise.all([
         supabase
           .from("household_readings")
-          .select("timestamp, consumption_kw, grid_kw, solar_kw, battery_power_kw, battery_soc")
+          .select(
+            "timestamp, consumption_kw, grid_kw, solar_kw, battery_power_kw, battery_soc_percent",
+          )
           .eq("household_id", householdId)
           .gte("timestamp", since)
           .order("timestamp", { ascending: true })
@@ -135,13 +136,16 @@ export function useHouseholdSnapshot(
       const hasLiveReadings = readings.length >= 2;
       const savingsSource = loggedYesterday ? "daily_savings log" : "live readings";
 
+      // DB column is battery_soc_percent; UI / HouseholdSnapshot keep battery_soc.
+      const socRaw = latestRow?.battery_soc_percent;
+
       const snapshot: HouseholdSnapshot = {
         household_id: householdId,
         mode: "self_consume",
         reason: hasLiveReadings
           ? "Real data • Calculated from your actual solar, grid & consumption"
           : "Preparing your first readings — suggestions appear once live data arrives",
-        battery_soc: latestRow?.battery_soc != null ? Number(latestRow.battery_soc) : 0,
+        battery_soc: socRaw != null ? Number(socRaw) : 0,
         solar_kw: latest?.solar_kw ?? 0,
         grid_kw: latest?.grid_kw ?? 0,
         consumption_kw: latest?.consumption_kw ?? 0,
