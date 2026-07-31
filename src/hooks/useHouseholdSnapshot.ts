@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.26
- * Updated: 1 Aug 2026 — impersonation: surface RLS/PostgREST errors (no silent Preparing).
+ * Version: v0.1.2.27
+ * Updated: 1 Aug 2026 — impersonation: surface daily_savings RLS errors (no silent — $).
  */
 import { useState, useEffect } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
@@ -58,9 +58,17 @@ function isLikelyPermissionOrSchemaError(err: unknown): boolean {
 
 function formatSnapshotFetchError(err: unknown): string {
   if (isLikelyPermissionOrSchemaError(err)) {
+    const msg = String(
+      err && typeof err === "object" && "message" in err
+        ? (err as { message?: string }).message ?? ""
+        : "",
+    ).toLowerCase();
+    const tableHint = /daily_savings/i.test(msg)
+      ? "daily_savings"
+      : "household_readings / daily_savings";
     return (
-      "Cannot load live readings (permission or schema). " +
-      "Check household_readings RLS / grants for this signed-in account."
+      `Cannot load ${tableHint === "daily_savings" ? "Estimated savings" : "live data"} ` +
+      `(permission or schema). Check ${tableHint} RLS / grants for this signed-in account.`
     );
   }
   if (err instanceof Error && err.message.trim()) return err.message;
@@ -126,6 +134,15 @@ export function useHouseholdSnapshot(
       ]);
 
       if (readingsResult.error) throw readingsResult.error;
+
+      // Impersonation only: do not leave Estimated $ cards as silent "—" on RLS deny.
+      // Non-impersonation path unchanged (soft-ignore savings log errors).
+      if (isImpersonating && savingsLogResult.error) {
+        const savErr = savingsLogResult.error;
+        throw Object.assign(savErr, {
+          message: `daily_savings: ${savErr.message || "permission denied"}`,
+        });
+      }
 
       const readingsData = readingsResult.data ?? [];
       const readings: Reading[] = readingsData.map((r) => ({
