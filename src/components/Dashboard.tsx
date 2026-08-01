@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.36
- * Updated: 1 Aug 2026 — pass lastReadingAt into Connection Health / Energy Systems.
+ * Version: v0.1.2.37
+ * Updated: 1 Aug 2026 — UI hierarchy: live + $ above education; How this works collapsed.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -703,6 +703,41 @@ function PhaseCountBadge({ phaseCount }: { phaseCount?: number | null }) {
   );
 }
 
+/** One-line connection health — full detail lives in How this works. */
+function CompactConnectionHealthLine({
+  lastReadingLabel,
+  fromLiveReadings,
+}: {
+  lastReadingLabel: string | null;
+  fromLiveReadings: boolean;
+}) {
+  return (
+    <section
+      role="status"
+      className="rounded-lg border border-slate-700/70 bg-slate-900/50 px-4 py-3"
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-500/90">
+        Connection Health
+      </p>
+      <p className="mt-1 text-sm text-slate-200">
+        Monitoring · read-only
+        {lastReadingLabel ? (
+          <>
+            {" · "}
+            Last reading {lastReadingLabel}
+            {fromLiveReadings ? " · from live readings" : ""}
+          </>
+        ) : (
+          " · Waiting on next reading"
+        )}
+      </p>
+      <p className="mt-0.5 text-xs text-slate-500">
+        Connected status needs a usable data pull — never Accept or OAuth alone.
+      </p>
+    </section>
+  );
+}
+
 export function Dashboard({
   userId = DEFAULT_USER_ID,
   refreshKey = 0,
@@ -985,132 +1020,88 @@ export function Dashboard({
 
       {statusNotice && <SoftStatusNotice message={statusNotice} />}
 
-      {household && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3">
-          {householdConnected ? (
-            <div className="flex items-center gap-3">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              <span className="text-sm font-medium text-slate-200">{brand} system connected</span>
-              <span className="text-xs text-slate-500">
-                since{" "}
-                {new Date(
-                  household.tesla_connected_at || household.sungrow_connected_at || Date.now()
-                ).toLocaleDateString()}
-              </span>
-            </div>
-          ) : effectivePending ? (
-            <div className="flex items-center gap-3">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-              <div>
-                <span className="text-sm font-medium text-amber-200">Connection request pending review</span>
-                <p className="text-xs text-amber-300/80">Our team will activate read-only access within 1–2 business days</p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-              <span className="text-sm font-medium text-slate-200">{brand} system not connected yet</span>
-            </div>
-          )}
-
-          {!householdConnected && !effectivePending && onConnectInverter && (
-            <button onClick={onConnectInverter} className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 transition-colors">
-              Connect {brand === "system" ? "system" : brand}
-            </button>
-          )}
-        </div>
-      )}
-
-      {!outcomeRanksQuery.loading && (
-        <OutcomePrioritiesBanner
-          topPrioritiesLabel={topPrioritiesLabel}
-          dataHealthy={prioritiesDataHealthy}
-          hasSavedRow={outcomeRanksQuery.hasSavedRow}
-          onChangePriorities={
-            onOpenProfile ? () => onOpenProfile("#priorities") : undefined
-          }
-        />
-      )}
-
       {effectivePending && <PendingRequestBanner />}
 
-      {/* Connection Health + Energy Systems (customerFacing when impersonating). */}
-      <div className="space-y-3">
-        <ConnectionHealthSummary
-          householdId={householdId}
-          inverterMake={household?.inverter_make}
-          customerFacing={energySystemsCustomerFacing}
-          lastReadingAt={hasLiveSnapshot ? snapshot?.last_updated ?? null : null}
-        />
-        <EnergySystemsSection
-          householdId={householdId}
-          inverterMake={household?.inverter_make}
-          customerFacing={energySystemsCustomerFacing}
-          lastReadingAt={hasLiveSnapshot ? snapshot?.last_updated ?? null : null}
-        />
-      </div>
-
-      <AgentControlBanner
-        householdId={householdId}
-        mode={agentControlMode}
-        isConnected={householdConnected}
-        isImpersonating={isImpersonating}
-        onActivated={() => householdQuery.refetch()}
-      />
-
-      {!householdConnected && <WelcomePilotOverview />}
-
-      <ConnectYourSystemPrompt
-        inverterMake={household?.inverter_make}
-        isConnected={householdConnected}
-        onConnect={onConnectInverter}
-      />
-
-      <NextStepsSection
-        isConnected={householdConnected}
-        inverterMake={household?.inverter_make}
-        onConnect={onConnectInverter}
-        awaitingLiveData={awaitingLiveData}
-      />
-
+      {/* 4–5. LIVE + $ strips — same order mobile & desktop; optional side-by-side on lg+ */}
       {awaitingLiveData ? (
         <PreparingLiveDataPanel />
       ) : (
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <CurrentModeCard mode={String(mode)} reason={friendlyReason} contextLine={modeContextLine} />
-          <MetricCard
-            label="Battery level"
-            value={hasLiveSnapshot && snapshot ? `${snapshot.battery_soc.toFixed(0)}%` : "—"}
-            hint={
-              hasLiveSnapshot
-                ? "How full your home battery is right now"
-                : "Appears after the first live data pull"
-            }
-          />
-          <MetricCard
-            label="Solar output"
-            value={hasLiveSnapshot && snapshot ? `${snapshot.solar_kw.toFixed(1)} kW` : "—"}
-            hint={hasLiveSnapshot ? "Power your panels are generating now" : undefined}
-          />
-          <MetricCard
-            label="Grid flow"
-            value={hasLiveSnapshot && snapshot ? formatGridFlow(snapshot.grid_kw) : "—"}
-            hint={
-              hasLiveSnapshot
-                ? "Whether you're importing from or exporting to the grid"
-                : undefined
-            }
-          />
-        </section>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-4 sm:p-5">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-emerald-500/90">
+              Live now
+            </h2>
+            <div className="mt-3 grid gap-3 grid-cols-2 sm:grid-cols-4">
+              <MetricCard
+                label="Battery level"
+                value={hasLiveSnapshot && snapshot ? `${snapshot.battery_soc.toFixed(0)}%` : "—"}
+                hint={
+                  hasLiveSnapshot
+                    ? "How full your home battery is right now"
+                    : "Appears after the first live data pull"
+                }
+              />
+              <MetricCard
+                label="Solar output"
+                value={hasLiveSnapshot && snapshot ? `${snapshot.solar_kw.toFixed(1)} kW` : "—"}
+                hint={hasLiveSnapshot ? "Power your panels are generating now" : undefined}
+              />
+              <MetricCard
+                label="Home usage"
+                value={
+                  hasLiveSnapshot && snapshot
+                    ? `${snapshot.consumption_kw.toFixed(1)} kW`
+                    : "—"
+                }
+                hint={hasLiveSnapshot ? "Power your home is using right now" : undefined}
+              />
+              <MetricCard
+                label="Grid flow"
+                value={hasLiveSnapshot && snapshot ? formatGridFlow(snapshot.grid_kw) : "—"}
+                hint={
+                  hasLiveSnapshot
+                    ? "Whether you're importing from or exporting to the grid"
+                    : undefined
+                }
+              />
+            </div>
+            {hasLiveSnapshot && snapshot && (
+              <p className="mt-3 text-xs text-slate-500">
+                Last updated {formatTimestamp(snapshot.last_updated)}
+              </p>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-4 sm:p-5">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-emerald-500/90">
+              Estimated savings
+            </h2>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <MetricCard
+                label="Yesterday's savings"
+                value={yesterdaySavings}
+                hint={
+                  hasLiveSnapshot
+                    ? savingsHint
+                    : "Calculated after we have a full day of readings"
+                }
+              />
+              <MetricCard
+                label="Savings so far (pilot)"
+                value={cumulativeSavings}
+                hint={
+                  snapshot?.days_of_data
+                    ? `${snapshot.days_of_data} day${snapshot.days_of_data === 1 ? "" : "s"} of data • cumulative Ergon 12D savings`
+                    : "Total savings from your available readings"
+                }
+              />
+            </div>
+            <SavingsTrendsSection readout={readoutQuery.data} loading={readoutQuery.loading} />
+          </section>
+        </div>
       )}
 
-      <TomorrowOutlookSection
-        tomorrowIrradiance={effectiveTomorrowIrradiance}
-        lowSolar={effectiveLowSolar}
-        isLive={usingLiveWeather}
-        weatherLoading={weatherLoading}
-      />
-
+      {/* 6. Last 24 Hours chart — full width under $ */}
       <ChartErrorBoundary>
         <Suspense
           fallback={
@@ -1123,38 +1114,155 @@ export function Dashboard({
         </Suspense>
       </ChartErrorBoundary>
 
+      {/* 7. Your setting today */}
       {!awaitingLiveData && (
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Home usage" value={hasLiveSnapshot && snapshot ? `${snapshot.consumption_kw.toFixed(1)} kW` : "—"} hint={hasLiveSnapshot ? "Power your home is using right now" : undefined} />
-        <div className="flex flex-col sm:col-span-2 xl:col-span-2">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <MetricCard
-              label="Yesterday's savings"
-              value={yesterdaySavings}
-              hint={hasLiveSnapshot ? savingsHint : "Calculated after we have a full day of readings"}
-            />
-            <MetricCard
-              label="Savings so far (pilot)"
-              value={cumulativeSavings}
-              hint={snapshot?.days_of_data
-                ? `${snapshot.days_of_data} day${snapshot.days_of_data === 1 ? "" : "s"} of data • cumulative Ergon 12D savings`
-                : "Total savings from your available readings"}
-            />
-          </div>
-          <SavingsTrendsSection readout={readoutQuery.data} loading={readoutQuery.loading} />
-        </div>
-        <MetricCard label="Last updated" value={hasLiveSnapshot && snapshot ? formatTimestamp(snapshot.last_updated) : "—"} hint={hasLiveSnapshot ? "When we last received data from your system" : undefined} />
-      </section>
+        <CurrentModeCard
+          mode={String(mode)}
+          reason={friendlyReason}
+          contextLine={modeContextLine}
+        />
       )}
 
+      {/* 8. Tomorrow's Outlook */}
+      <TomorrowOutlookSection
+        tomorrowIrradiance={effectiveTomorrowIrradiance}
+        lowSolar={effectiveLowSolar}
+        isLive={usingLiveWeather}
+        weatherLoading={weatherLoading}
+      />
+
+      {/* 9. Connection Health — one-line; full detail in How this works */}
+      <CompactConnectionHealthLine
+        lastReadingLabel={
+          hasLiveSnapshot && snapshot ? formatTimestamp(snapshot.last_updated) : null
+        }
+        fromLiveReadings={hasLiveSnapshot}
+      />
+
+      {/* 10. Priorities — compact */}
+      {!outcomeRanksQuery.loading && (
+        <OutcomePrioritiesBanner
+          topPrioritiesLabel={topPrioritiesLabel}
+          dataHealthy={prioritiesDataHealthy}
+          hasSavedRow={outcomeRanksQuery.hasSavedRow}
+          onChangePriorities={
+            onOpenProfile ? () => onOpenProfile("#priorities") : undefined
+          }
+        />
+      )}
+
+      {/* 11. How this works — collapsed by default */}
+      <details className="group rounded-lg border border-slate-700 bg-slate-900/70">
+        <summary className="cursor-pointer list-none px-4 py-3 sm:px-5 sm:py-4 [&::-webkit-details-marker]:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-medium text-emerald-400">How this works</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Monitoring · read-only · connection honesty · what&apos;s next
+              </p>
+            </div>
+            <span className="shrink-0 text-xs text-slate-500 group-open:hidden">Show</span>
+            <span className="hidden shrink-0 text-xs text-slate-500 group-open:inline">Hide</span>
+          </div>
+        </summary>
+        <div className="space-y-4 border-t border-slate-700/80 px-4 py-4 sm:px-5">
+          {household && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3">
+              {householdConnected ? (
+                <div className="flex items-center gap-3">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                  <span className="text-sm font-medium text-slate-200">
+                    {brand} system connected
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    since{" "}
+                    {new Date(
+                      household.tesla_connected_at ||
+                        household.sungrow_connected_at ||
+                        Date.now()
+                    ).toLocaleDateString()}
+                  </span>
+                </div>
+              ) : effectivePending ? (
+                <div className="flex items-center gap-3">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                  <div>
+                    <span className="text-sm font-medium text-amber-200">
+                      Connection request pending review
+                    </span>
+                    <p className="text-xs text-amber-300/80">
+                      Our team will activate read-only access within 1–2 business days
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                  <span className="text-sm font-medium text-slate-200">
+                    {brand} system not connected yet
+                  </span>
+                </div>
+              )}
+
+              {!householdConnected && !effectivePending && onConnectInverter && (
+                <button
+                  onClick={onConnectInverter}
+                  className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+                >
+                  Connect {brand === "system" ? "system" : brand}
+                </button>
+              )}
+            </div>
+          )}
+
+          <ConnectionHealthSummary
+            householdId={householdId}
+            inverterMake={household?.inverter_make}
+            customerFacing={energySystemsCustomerFacing}
+            lastReadingAt={hasLiveSnapshot ? snapshot?.last_updated ?? null : null}
+          />
+          <EnergySystemsSection
+            householdId={householdId}
+            inverterMake={household?.inverter_make}
+            customerFacing={energySystemsCustomerFacing}
+            lastReadingAt={hasLiveSnapshot ? snapshot?.last_updated ?? null : null}
+          />
+
+          <AgentControlBanner
+            householdId={householdId}
+            mode={agentControlMode}
+            isConnected={householdConnected}
+            isImpersonating={isImpersonating}
+            onActivated={() => householdQuery.refetch()}
+          />
+
+          {!householdConnected && <WelcomePilotOverview />}
+
+          <ConnectYourSystemPrompt
+            inverterMake={household?.inverter_make}
+            isConnected={householdConnected}
+            onConnect={onConnectInverter}
+          />
+
+          <NextStepsSection
+            isConnected={householdConnected}
+            inverterMake={household?.inverter_make}
+            onConnect={onConnectInverter}
+            awaitingLiveData={awaitingLiveData}
+          />
+        </div>
+      </details>
+
+      {/* 12. Operating Modes */}
       <OperatingModesSection activeMode={String(mode)} controlMode={agentControlMode} />
 
+      {/* 13. Today's Energy Decision / Suggestions */}
       {awaitingLiveData || !decision ? (
         <PreparingDecisionsPanel />
       ) : (
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
-          <h2 className="text-lg font-medium text-emerald-400">Today&apos;s energy decision</h2>
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
+            <h2 className="text-lg font-medium text-emerald-400">Today&apos;s energy decision</h2>
             <>
               <DecisionSummaryBlock
                 decision={decision}
@@ -1162,11 +1270,36 @@ export function Dashboard({
                 dataHealthy={prioritiesDataHealthy}
               />
               <dl className="mt-5 space-y-3 border-t border-slate-700/80 pt-4 text-sm">
-                <div className="flex justify-between gap-4"><dt className="text-slate-400">First suggestion</dt><dd>{formatModeLabel(String(proposedMode ?? mode))}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-slate-400">Mode in use</dt><dd>{formatModeLabel(String(finalMode ?? mode))}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-slate-400">How confident</dt><dd>{formatConfidence(decision.confidence ?? 0)}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-slate-400">Safety check</dt><dd>{decision.verification_passed ? "Passed" : "Adjusted for safety"}{decision.severity && !decision.verification_passed ? ` (${decision.severity})` : ""}</dd></div>
-                {decision.harmony_recommendation && <div className="flex justify-between gap-4"><dt className="text-slate-400">Coordinated with other homes</dt><dd>{formatHarmonyDetail(decision.harmony_recommendation)}{harmonyInfluenced ? " · affected today's mode" : ""}</dd></div>}
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-400">First suggestion</dt>
+                  <dd>{formatModeLabel(String(proposedMode ?? mode))}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-400">Mode in use</dt>
+                  <dd>{formatModeLabel(String(finalMode ?? mode))}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-400">How confident</dt>
+                  <dd>{formatConfidence(decision.confidence ?? 0)}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-400">Safety check</dt>
+                  <dd>
+                    {decision.verification_passed ? "Passed" : "Adjusted for safety"}
+                    {decision.opportunity && !decision.verification_passed
+                      ? ` (${decision.opportunity})`
+                      : ""}
+                  </dd>
+                </div>
+                {decision.harmony_recommendation && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400">Coordinated with other homes</dt>
+                    <dd>
+                      {formatHarmonyDetail(decision.harmony_recommendation)}
+                      {harmonyInfluenced ? " · affected today's mode" : ""}
+                    </dd>
+                  </div>
+                )}
                 {!isImpersonating && (
                   <div>
                     <dt className="text-slate-400">Technical note</dt>
@@ -1175,25 +1308,46 @@ export function Dashboard({
                 )}
               </dl>
             </>
-        </div>
+          </div>
 
-        <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
-          <h2 className="text-lg font-medium text-emerald-400">When today&apos;s decision was made</h2>
-          <p className="mt-1 text-sm text-slate-500">Snapshot of your home at the time of the latest agent update.</p>
-          <dl className="mt-4 space-y-3 text-sm">
-            {decision.reasoning?.context ? (
-              <>
-                <div className="flex justify-between gap-4"><dt className="text-slate-400">Battery level when decided</dt><dd>{decision.reasoning.context.battery_soc != null ? `${decision.reasoning.context.battery_soc}%` : "Not recorded"}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-slate-400">Solar when decided</dt><dd>{decision.reasoning.context.solar_power_w != null ? `${(decision.reasoning.context.solar_power_w / 1000).toFixed(1)} kW` : "Not recorded"}</dd></div>
-              </>
-            ) : (
-              <p className="text-slate-500">Decision context will appear here once the agent records a full snapshot.</p>
-            )}
-          </dl>
-        </div>
-      </section>
+          <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
+            <h2 className="text-lg font-medium text-emerald-400">
+              When today&apos;s decision was made
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Snapshot of your home at the time of the latest agent update.
+            </p>
+            <dl className="mt-4 space-y-3 text-sm">
+              {decision.reasoning?.context ? (
+                <>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400">Battery level when decided</dt>
+                    <dd>
+                      {decision.reasoning.context.battery_soc != null
+                        ? `${decision.reasoning.context.battery_soc}%`
+                        : "Not recorded"}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400">Solar when decided</dt>
+                    <dd>
+                      {decision.reasoning.context.solar_power_w != null
+                        ? `${(decision.reasoning.context.solar_power_w / 1000).toFixed(1)} kW`
+                        : "Not recorded"}
+                    </dd>
+                  </div>
+                </>
+              ) : (
+                <p className="text-slate-500">
+                  Decision context will appear here once the agent records a full snapshot.
+                </p>
+              )}
+            </dl>
+          </div>
+        </section>
       )}
 
+      {/* 14. Your home details */}
       {household && (
         <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
           <h2 className="text-lg font-medium text-emerald-400">Your home details</h2>
