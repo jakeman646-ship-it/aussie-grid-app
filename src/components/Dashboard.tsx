@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.37
- * Updated: 1 Aug 2026 — UI hierarchy: live + $ above education; How this works collapsed.
+ * Version: v0.1.2.38
+ * Updated: 1 Aug 2026 — fix decision.severity typecheck (was wrong .opportunity).
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -1286,8 +1286,8 @@ export function Dashboard({
                   <dt className="text-slate-400">Safety check</dt>
                   <dd>
                     {decision.verification_passed ? "Passed" : "Adjusted for safety"}
-                    {decision.opportunity && !decision.verification_passed
-                      ? ` (${decision.opportunity})`
+                    {decision.severity && !decision.verification_passed
+                      ? ` (${decision.severity})`
                       : ""}
                   </dd>
                 </div>
