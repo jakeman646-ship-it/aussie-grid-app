@@ -1,10 +1,8 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.3.0
- * Lines: ~720
- * Updated: 19 Jul 2026 — recommended location fields (postcode/suburb/state) with
- *          live QLD DNSP/tariff preview for CEO Dashboard tariff detection.
+ * Version: v0.1.3.1
+ * Updated: 1 Aug 2026 — Sungrow: no password field; OAuth owner Accept is the path.
  */
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
@@ -93,10 +91,11 @@ const INVERTER_COPY: Record<
       "Log into your Sungrow iSolarCloud account",
       "Go to your plant → Settings → General information and copy the Plant ID (Site ID)",
       "(Optional) Copy your inverter's Serial Number",
-      "Enter your iSolarCloud account email and password below so we can request read-only access",
-      "We'll review and activate read-only data access on your behalf.",
+      "Enter your iSolarCloud account email and Plant ID below",
+      "Continue to connect with iSolarCloud — you'll approve read-only access as the plant owner (no password needed here).",
     ],
-    successVerify: "We verify your Site ID and request read-only access from Sungrow",
+    successVerify:
+      "We verify your Site ID and continue with secure iSolarCloud owner approval for read-only monitoring",
   },
   Tesla: {
     title: "Connect your Tesla system",
@@ -256,12 +255,9 @@ export function ConnectInverter({
       setError("Please enter a valid email address.");
       return false;
     }
+    // Sungrow: password not collected — OAuth / owner Accept is the production path.
     if (inverterMake === "Tesla" && !formData.accountPassword.trim()) {
       setError("Please enter your Tesla account password.");
-      return false;
-    }
-    if (inverterMake === "Sungrow" && !formData.accountPassword.trim()) {
-      setError("Please enter your Sungrow iSolarCloud account password.");
       return false;
     }
     // Location fields are recommended only — never block submit.
@@ -282,7 +278,9 @@ export function ConnectInverter({
         phaseCount: Number(formData.supplyPhase) as 1 | 3,
         siteId: formData.siteId,
         accountEmail: formData.accountEmail,
-        accountPassword: formData.accountPassword,
+        // Sungrow: never post a password — owner Accept / OAuth is the real path.
+        accountPassword:
+          inverterMake === "Tesla" ? formData.accountPassword : undefined,
         inverterSerial: formData.inverterSerial,
         notes: formData.notes,
         currentHouseholdId,
@@ -597,25 +595,24 @@ export function ConnectInverter({
                     required
                   />
                   <p className="mt-1 text-xs text-slate-500">{copy.emailHint}</p>
+                  {inverterMake === "Sungrow" && (
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+                      We connect with secure iSolarCloud owner approval — your password is not
+                      required for ongoing monitoring.
+                    </p>
+                  )}
                 </div>
 
-                {(inverterMake === "Tesla" || inverterMake === "Sungrow") && (
+                {inverterMake === "Tesla" && (
                   <div>
                     <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                      {inverterMake === "Tesla"
-                        ? "Tesla account password"
-                        : "Sungrow iSolarCloud account password"}{" "}
-                      <span className="text-red-400">*</span>
+                      Tesla account password <span className="text-red-400">*</span>
                     </label>
                     <input
                       type="password"
                       value={formData.accountPassword}
                       onChange={(e) => handleInputChange("accountPassword", e.target.value)}
-                      placeholder={
-                        inverterMake === "Tesla"
-                          ? "Your Tesla account password"
-                          : "Your iSolarCloud account password"
-                      }
+                      placeholder="Your Tesla account password"
                       autoComplete="current-password"
                       className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                       required
@@ -674,7 +671,11 @@ export function ConnectInverter({
                 disabled={isSubmitting || checkingStatus}
                 className="mt-6 w-full rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-700"
               >
-                {isSubmitting ? "Submitting request… (may take up to a minute on slow connections)" : "Submit connection request"}
+                {isSubmitting
+                  ? "Submitting request… (may take up to a minute on slow connections)"
+                  : inverterMake === "Sungrow"
+                    ? "Connect with iSolarCloud"
+                    : "Submit connection request"}
               </button>
 
               <p className="mt-3 text-center text-xs text-slate-500">
