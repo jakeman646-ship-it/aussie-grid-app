@@ -1,16 +1,12 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.27
- * Updated: 1 Aug 2026 — impersonation: surface daily_savings RLS errors (no silent — $).
+ * Version: v0.1.2.28
+ * Updated: 3 Aug 2026 — estimated $ only from daily_savings (no client dual-math).
  */
 import { useState, useEffect } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
-import {
-  calculateSavingsFromReadings,
-  getYesterdayBrisbaneDate,
-  type Reading,
-} from "@/lib/calculateSavings";
+import { getYesterdayBrisbaneDate } from "@/lib/calculateSavings";
 
 export interface HouseholdSnapshot {
   household_id: string;
@@ -51,7 +47,6 @@ function isLikelyPermissionOrSchemaError(err: unknown): boolean {
   if (/permission denied|not authorized|jwt|row-level security|rls|403|401/i.test(msg)) {
     return true;
   }
-  // Unknown column / schema drift (should be rare after battery_soc_percent fix).
   if (/column .* does not exist|could not find.*column/i.test(msg)) return true;
   return false;
 }
@@ -135,8 +130,6 @@ export function useHouseholdSnapshot(
 
       if (readingsResult.error) throw readingsResult.error;
 
-      // Impersonation only: do not leave Estimated $ cards as silent "—" on RLS deny.
-      // Non-impersonation path unchanged (soft-ignore savings log errors).
       if (isImpersonating && savingsLogResult.error) {
         const savErr = savingsLogResult.error;
         throw Object.assign(savErr, {
@@ -145,65 +138,54 @@ export function useHouseholdSnapshot(
       }
 
       const readingsData = readingsResult.data ?? [];
-      const readings: Reading[] = readingsData.map((r) => ({
-        timestamp: r.timestamp,
-        consumption_kw: Number(r.consumption_kw ?? 0),
-        grid_kw: Number(r.grid_kw ?? 0),
-        solar_kw: r.solar_kw != null ? Number(r.solar_kw) : undefined,
-        battery_power_kw: r.battery_power_kw != null ? Number(r.battery_power_kw) : undefined,
-      }));
-
-      const calc = calculateSavingsFromReadings(readings);
-      const savingsRows = savingsLogResult.data ?? [];
+      const savingsRows = savingsLogResult.error ? [] : (savingsLogResult.data ?? []);
       const yesterdayKey = getYesterdayBrisbaneDate();
 
       const loggedYesterday = savingsRows.find((r) => r.savings_date === yesterdayKey);
       const loggedCumulative = savingsRows.reduce(
         (sum, r) => sum + Number(r.savings_aud ?? 0),
-        0
+        0,
       );
 
+      // Server log only — never client dual-math (v1 formula ≠ savings_engine v2).
       const yesterdaySavings =
         loggedYesterday?.savings_aud != null
           ? Number(loggedYesterday.savings_aud)
-          : calc.yesterdaySavings > 0
-            ? calc.yesterdaySavings
-            : null;
-
+          : null;
       const cumulativeSavings =
-        loggedCumulative > 0
-          ? Number(loggedCumulative.toFixed(2))
-          : calc.cumulativeSavings > 0
-            ? calc.cumulativeSavings
-            : null;
+        savingsRows.length > 0 ? Number(loggedCumulative.toFixed(2)) : null;
 
       const latestRow =
         readingsData.length > 0 ? readingsData[readingsData.length - 1] : null;
-      const latest = readings.length > 0 ? readings[readings.length - 1] : null;
 
-      const hasLiveReadings = readings.length >= 2;
-      const savingsSource = loggedYesterday ? "daily_savings log" : "live readings";
+      const hasLiveReadings = readingsData.length >= 2;
+      const dayKeys = new Set(
+        readingsData.map((r) => (r.timestamp || "").slice(0, 10)).filter(Boolean),
+      );
+      const daysOfData = dayKeys.size;
 
-      // DB column is battery_soc_percent; UI / HouseholdSnapshot keep battery_soc.
       const socRaw = latestRow?.battery_soc_percent;
 
       const snapshot: HouseholdSnapshot = {
         household_id: householdId,
         mode: "self_consume",
         reason: hasLiveReadings
-          ? "Real data • Calculated from your actual solar, grid & consumption"
+          ? "Real data • Live readings from your system"
           : "Preparing your first readings — suggestions appear once live data arrives",
         battery_soc: socRaw != null ? Number(socRaw) : 0,
-        solar_kw: latest?.solar_kw ?? 0,
-        grid_kw: latest?.grid_kw ?? 0,
-        consumption_kw: latest?.consumption_kw ?? 0,
+        solar_kw: latestRow?.solar_kw != null ? Number(latestRow.solar_kw) : 0,
+        grid_kw: latestRow?.grid_kw != null ? Number(latestRow.grid_kw) : 0,
+        consumption_kw:
+          latestRow?.consumption_kw != null ? Number(latestRow.consumption_kw) : 0,
         yesterday_savings_aud: yesterdaySavings,
         cumulative_savings_aud: cumulativeSavings,
         last_updated: latestRow?.timestamp ?? new Date().toISOString(),
         data_source: hasLiveReadings ? "supabase" : "no_data",
-        days_of_data: calc.daysOfData || 0,
+        days_of_data: daysOfData,
         data_quality_note: hasLiveReadings
-          ? `${calc.dataNote} • Ergon 12D TOU via ${savingsSource}`
+          ? loggedYesterday
+            ? `Estimated bill impact from daily_savings log • Ergon 12D`
+            : `Live readings available — estimated $ appears after the daily savings run`
           : "No live readings yet — your dashboard will fill in after the first successful data pull",
       };
 
@@ -211,8 +193,6 @@ export function useHouseholdSnapshot(
     } catch (err) {
       console.error("useHouseholdSnapshot error:", err);
       const message = formatSnapshotFetchError(err);
-      // Impersonation: do not swallow RLS / PostgREST failures as silent "Preparing".
-      // Empty/no-rows still becomes a calm empty snapshot; permission errors surface.
       if (isImpersonating && isLikelyPermissionOrSchemaError(err)) {
         setData(buildEmptySnapshot(householdId));
         setError(new Error(message));
