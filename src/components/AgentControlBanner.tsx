@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Agent Control Banner
  * File: src/components/AgentControlBanner.tsx
- * Version: v0.1.2.21
- * Updated: 3 Aug 2026 — honesty: no full-control / inverter actuation claims.
+ * Version: v0.1.2.22
+ * Updated: 6 Aug 2026 — opt-in anytime when connected; 2–4 weeks advisory only.
  */
 import { useState } from "react";
 import { activateAgentControl } from "@/lib/api/activateAgentControl";
@@ -47,7 +47,7 @@ export function AgentControlBanner({
       setShowConfirm(false);
       onActivated?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not activate agent control");
+      setError(err instanceof Error ? err.message : "Could not save agent control preference");
     } finally {
       setActivating(false);
     }
@@ -64,6 +64,11 @@ export function AgentControlBanner({
               <strong className="font-medium">listen-first</strong>: we log decisions and
               suggestions from your live data. Automatic inverter control is{" "}
               <em>not</em> live until a confirmed control path exists for your system.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-emerald-100/80">
+              Preference recorded. Evidence still builds over the first weeks of live readings —
+              that helps reports and any later control choice stay grounded in your home&apos;s
+              real pattern.
             </p>
             {isWriteBlocked && (
               <p className="mt-2 text-sm text-amber-200/90">View only while impersonating</p>
@@ -88,8 +93,8 @@ export function AgentControlBanner({
             but it <em>cannot</em> change any settings on your inverter.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-sky-100/80">
-            When you're ready, you can opt in to agent control preference. Automatic control
-            still requires a confirmed path for your hardware — listen first, control later.
+            When you&apos;re ready, you can opt in to agent control preference anytime. Automatic
+            control still requires a confirmed path for your hardware — listen first, control later.
           </p>
           {isWriteBlocked && (
             <p className="mt-2 text-sm text-amber-200/90">View only while impersonating</p>
@@ -102,6 +107,10 @@ export function AgentControlBanner({
 
       {isConnected && !isWriteBlocked && (
         <div className="mt-4 border-t border-sky-700/30 pt-4">
+          <p className="mb-3 text-sm leading-relaxed text-sky-100/75">
+            2–4 weeks of live readings is advised so reports and any later control choice are based
+            on your home&apos;s real pattern — you can still save this preference anytime.
+          </p>
           {!showConfirm ? (
             <button
               type="button"
@@ -114,7 +123,7 @@ export function AgentControlBanner({
             <div className="rounded-lg border border-amber-600/40 bg-amber-950/30 px-4 py-3">
               <p className="text-sm font-medium text-amber-200">Confirm preference</p>
               <p className="mt-1 text-sm text-amber-100/90">
-                This records that you're open to agent control later. It does{" "}
+                This records that you&apos;re open to agent control later. It does{" "}
                 <strong>not</strong> enable automatic inverter changes today. Every logged
                 decision stays visible on this dashboard.
               </p>
@@ -143,7 +152,7 @@ export function AgentControlBanner({
 
       {!isConnected && !isWriteBlocked && (
         <p className="mt-3 text-xs text-sky-400/80">
-          Connect your inverter first — agent preferences become available once live readings exist.
+          Connect your inverter first — then you can save an agent control preference anytime.
         </p>
       )}
 

@@ -1,8 +1,8 @@
 /**
- * Aussie Grid — Activate agent control
+ * Aussie Grid — Record agent control preference
  * File: src/lib/api/activateAgentControl.ts
- * Version: v0.1.2.20
- * Updated: 24 Jul 2026 — block writes while impersonating (security 4).
+ * Version: v0.1.2.21
+ * Updated: 6 Aug 2026 — preference write; no time/readings gate; impersonation blocked.
  */
 import { supabase, queryTimeout } from "@/lib/supabase";
 
@@ -12,8 +12,10 @@ export interface ActivateAgentControlOptions {
 }
 
 /**
- * Switch a household from read-only to full agent control.
+ * Record agent control preference (agent_control_mode = agent_control).
+ * Does not enable automatic inverter actuation by itself.
  * Never updates pilot_households under impersonation.
+ * No date or readings eligibility checks — owner may opt in anytime when connected.
  */
 export async function activateAgentControl(
   householdId: string,
@@ -25,7 +27,7 @@ export async function activateAgentControl(
 
   const id = (householdId || "").trim();
   if (!id) {
-    throw new Error("Missing household id — cannot activate agent control.");
+    throw new Error("Missing household id — cannot save agent control preference.");
   }
 
   const now = new Date().toISOString();

@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.38
- * Updated: 1 Aug 2026 — fix decision.severity typecheck (was wrong .opportunity).
+ * Version: v0.1.2.39
+ * Updated: 6 Aug 2026 — agent control copy: opt-in anytime; 2–4 weeks advisory.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -250,8 +250,10 @@ function WelcomePilotOverview() {
       </p>
       <p className="mt-2 text-sm leading-relaxed text-slate-300">
         Your home&apos;s smart agent is learning from your solar and battery data right now.
-        During this pre-pilot phase, everything is read-only — the agent suggests operating modes but cannot control your inverter yet.
-        Once we&apos;ve seen enough data from participating homes, we&apos;ll move into the active pilot phase where the agent can start setting modes on your system.
+        Default is read-only / suggest-only — the agent can suggest operating modes but does not
+        change your inverter until a confirmed control path exists. You may save an agent control
+        preference anytime once connected; 2–4 weeks of live readings is advised so reports and
+        any later control choice are based on your home&apos;s real pattern.
       </p>
     </section>
   );
@@ -339,7 +341,7 @@ function NextStepsSection({
           <li>Connect your {brand} system using the button above</li>
           <li>Once connected, we&apos;ll start collecting your solar &amp; battery data (read-only during this phase)</li>
           <li>Check back each day to see your agent&apos;s suggested operating mode and the reasoning</li>
-          <li>In the coming weeks we&apos;ll move into the active pilot phase — the agent will start setting modes on your system</li>
+          <li>Optionally save an agent control preference anytime after you connect (automatic inverter control still needs a confirmed path)</li>
         </ol>
         {onConnect && (
           <button
@@ -384,10 +386,11 @@ function NextStepsSection({
             2
           </span>
           <span>
-            <span className="font-medium text-slate-100">Stay in read-only / suggest-only</span>
+            <span className="font-medium text-slate-100">Stay in read-only / suggest-only by default</span>
             <span className="mt-0.5 block text-slate-400">
-              Your agent will start sharing daily mode suggestions once it has enough data. It
-              cannot change your inverter until you activate agent control.
+              Your agent shares daily mode suggestions as live data arrives. It cannot change your
+              inverter automatically until a confirmed control path exists — preference alone is
+              not actuation.
             </span>
           </span>
         </li>
@@ -396,10 +399,10 @@ function NextStepsSection({
             3
           </span>
           <span>
-            <span className="font-medium text-slate-100">Activate agent control when you&apos;re ready</span>
+            <span className="font-medium text-slate-100">Save agent control preference anytime</span>
             <span className="mt-0.5 block text-slate-400">
-              Use Activate Agent Control above only when you want Aussie Grid to apply suggested
-              modes on your system. You stay in charge of that step.
+              Opt in when you want — connection required, not a waiting period. 2–4 weeks of live
+              readings is advised before relying on reports or treating later control as informed.
             </span>
           </span>
         </li>
@@ -453,8 +456,8 @@ function PreparingDecisionsPanel() {
         expected for a new connection.
       </p>
       <p className="mt-3 text-xs text-slate-500">
-        Read-only / suggest-only during this phase. Activate Agent Control only when you want the
-        agent to apply modes on your inverter.
+        Read-only / suggest-only by default. You can save an agent control preference anytime once
+        connected — that does not turn on automatic inverter changes today.
       </p>
     </section>
   );
