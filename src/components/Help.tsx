@@ -1,4 +1,10 @@
-﻿import { useState } from 'react';
+﻿/**
+ * Aussie Grid — Help & FAQ
+ * File: src/components/Help.tsx
+ * Version: v0.1.2.1
+ * Updated: 6 Aug 2026 — listen-first honesty; preference anytime; no 4–8 week control promise.
+ */
+import { useState } from 'react';
 
 export interface HelpProps {
   onBack?: () => void;
@@ -14,15 +20,15 @@ const PILOT_SUPPORT_EMAIL = "help@aussiegrid.au";
 const faqData: FAQItem[] = [
   {
     question: "What is the Aussie Grid Mackay Pilot?",
-    answer: "We're working with a small group of local Mackay households to test whether a smart agent can help homes use solar and batteries more efficiently — both for the household and for the local grid. The goal is to reduce bills, support grid stability, and keep more solar energy in the community.",
+    answer: "We're working with a small group of local Mackay households in a listen-first pilot: we read live solar and battery data, show Estimated figures on your dashboard, and leave decisions with you. The aim is to learn how homes can use solar and batteries more wisely for households and the local grid — without overclaiming control or guaranteed bill outcomes.",
   },
   {
-    question: "Why is everything read-only right now?",
-    answer: "We're in the pre-pilot learning phase. During this stage we only read data from your solar and battery system so the agent can learn what works best for Mackay homes. We cannot control your inverter or change any settings yet. This keeps everything simple and safe while we gather real-world data.",
+    question: "Why is everything read-only / suggest-only by default?",
+    answer: "We're listening first. We read data from your solar and battery system so the agent can learn patterns and suggest operating modes. Automatic inverter control is not claimed as live until a confirmed control path exists for your system. That keeps the pilot simple and honest while we gather real-world evidence.",
   },
   {
-    question: "How long will the pre-pilot phase last?",
-    answer: "It depends on how quickly we get good data from participating homes. Our target is to move into the active pilot phase (where the agent can start setting operating modes) within the next 4–8 weeks, once we've seen consistent patterns across the group.",
+    question: "How long before reports are useful — and when can I opt in?",
+    answer: "About 2–4 weeks of live readings is advised so reports and Estimated figures better reflect your home's real pattern — that's guidance for evidence quality, not a waiting period. Once your system is connected, you can save an optional agent control preference anytime. Preference does not turn on automatic inverter changes by itself.",
   },
   {
     question: "What data do you collect from my system?",
@@ -30,19 +36,19 @@ const faqData: FAQItem[] = [
   },
   {
     question: "Will you ever control my inverter without asking?",
-    answer: "No. During the entire pilot you stay in full control. Even in the active phase, the agent will only suggest or set operating modes within clear safety limits that you approve during onboarding. You can always override or leave the pilot at any time.",
+    answer: "No. You stay in charge. Saving an agent control preference is optional and records that you're open to control later — it does not enable automatic inverter changes today. Automatic control is not live until a confirmed control path exists, and any future actuation would stay within clear safety limits. You can leave the pilot at any time.",
   },
   {
     question: "How do I connect my Sungrow system?",
-    answer: "Go to the Connect Inverter page from the dashboard or top menu. You'll need your Sungrow Site ID (Plant ID) and the email linked to your iSolarCloud account. We request read-only API access on your behalf. Once approved, your dashboard will show 'Live data' instead of sample data.",
+    answer: "Go to the Connect Inverter page from the dashboard or top menu. Follow the iSolarCloud authorise steps for read-only monitoring. Once live readings arrive, your dashboard can show Live data instead of placeholders. Connection is required before you can save an agent control preference.",
   },
   {
-    question: "I submitted my Site ID but it still says not connected — what now?",
-    answer: "Our team manually reviews and activates each connection (usually within 1–2 business days). You'll receive a confirmation email when it's live. If it's been longer than 48 hours, reply to the confirmation email or use the contact details below.",
+    question: "I submitted my connection but it still says not connected — what now?",
+    answer: "Our team may need to review and activate read-only access (often within 1–2 business days). You'll hear from us when readings are flowing. If it's been longer than 48 hours, reply to the confirmation email or use the contact details below. Connected status means usable data pull — not Accept or OAuth alone.",
   },
   {
     question: "Where can I see my daily savings or agent suggestions?",
-    answer: "On the main Dashboard you'll see your current operating mode, the agent's reasoning, tomorrow's solar outlook, and estimated savings. Daily and weekly savings trends will be added in a future update once we have more real data.",
+    answer: "On the main Dashboard you'll see live readings (when available), Estimated savings labelled as estimated / Ergon 12D where shown, and mode suggestions when the agent has enough data to record a decision. Figures are sample-based and not a retailer bill. A few weeks of readings usually makes the picture clearer.",
   },
   {
     question: "Can I leave the pilot at any time?",
@@ -77,7 +83,7 @@ export function Help({ onBack }: HelpProps) {
             )}
             <div>
               <h1 className="text-2xl font-semibold text-emerald-400">Help &amp; FAQ</h1>
-              <p className="text-sm text-slate-400">Mackay Pilot — Pre-pilot learning phase</p>
+              <p className="text-sm text-slate-400">Mackay Pilot — Listen first · you decide</p>
             </div>
           </div>
         </div>
@@ -85,8 +91,9 @@ export function Help({ onBack }: HelpProps) {
         {/* Intro */}
         <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/60 p-5">
           <p className="text-sm leading-relaxed text-slate-300">
-            This page answers the most common questions from households in the Aussie Grid Mackay Pilot. 
-            We're still in the early data collection stage, so everything is read-only while we learn together.
+            This page answers common questions from households in the Aussie Grid Mackay Pilot.
+            Default is listen-first: read live data, show Estimated figures, leave decisions with you.
+            Optional agent control preference is available when your system is connected — you choose if/when.
           </p>
         </div>
 
@@ -142,13 +149,14 @@ export function Help({ onBack }: HelpProps) {
           <ul className="space-y-2 text-sm text-slate-300">
             <li>• <span className="font-medium">Connect your Sungrow system</span> — go to the Connect Inverter page from the top menu</li>
             <li>• <span className="font-medium">Check your daily suggestion</span> — return to the Dashboard to see today's mode and reasoning</li>
+            <li>• <span className="font-medium">Agent control preference</span> — optional, anytime once connected (does not enable automatic control today)</li>
             <li>• <span className="font-medium">Switch between test households</span> — use the DEV dropdown in the top-right (visible in development)</li>
           </ul>
         </div>
 
         {/* Footer reassurance */}
         <div className="mt-8 text-center text-xs text-slate-500">
-          Aussie Grid Mackay Pilot • Pre-pilot learning phase • Read-only access only • Your system stays under your full control
+          Aussie Grid Mackay Pilot • Listen first • Preference ≠ automatic control • You stay in charge
         </div>
       </div>
     </div>
