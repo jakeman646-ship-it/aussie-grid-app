@@ -1,9 +1,8 @@
 /**
  * Aussie Grid — Connection request submit helper
  * File: src/lib/api/submitConnectionRequest.ts
- * Version: v0.1.3.0
- * Updated: 19 Jul 2026 — optional location fields (postcode/suburb/state) +
- *          suggested DNSP/tariff; soft-drop missing columns; best-effort household write.
+ * Version: v0.1.4.0
+ * Updated: 7 Aug 2026 — Energex optional retail_* (¢ UI → store $/kWh); soft-drop columns.
  */
 import {
   getSupabaseConfigIssue,
@@ -35,6 +34,15 @@ export interface SubmitConnectionRequestInput {
   postcode?: string;
   suburb?: string;
   state?: string;
+  /**
+   * Energex-only bill rates in ¢/kWh (plain AU display).
+   * Converted to $/kWh for DB (same convention as CEO Confirm retail).
+   * All optional — blank → omit; submit still succeeds.
+   */
+  retailPeakCents?: string;
+  retailShoulderCents?: string;
+  retailOffPeakCents?: string;
+  retailFitCents?: string;
 }
 
 export type SubmitConnectionRequestResult =
@@ -51,11 +59,38 @@ const OPTIONAL_REQUEST_COLUMNS = [
   "state",
   "dnsp",
   "network_tariff_profile",
+  "retail_plan_id",
+  "retail_peak_rate",
+  "retail_shoulder_rate",
+  "retail_off_peak_rate",
+  "retail_fit_rate",
   "phase_count",
   "inverter_serial",
   "account_password",
   "notes",
 ] as const;
+
+const HOUSEHOLD_SYNC_KEYS = [
+  "postcode",
+  "suburb",
+  "state",
+  "dnsp",
+  "network_tariff_profile",
+  "retail_peak_rate",
+  "retail_shoulder_rate",
+  "retail_off_peak_rate",
+  "retail_fit_rate",
+] as const;
+
+/** Convert ¢/kWh display string → $/kWh for pilot_* retail_* columns. */
+export function centsPerKwhToAud(cents: string | undefined | null): number | null {
+  if (cents === null || cents === undefined) return null;
+  const cleaned = String(cents).trim().replace(/,/g, "");
+  if (!cleaned) return null;
+  const n = Number.parseFloat(cleaned);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round((n / 100) * 1e6) / 1e6;
+}
 
 export function resolveHouseholdId(
   label: string,
@@ -103,10 +138,38 @@ function buildLocationFields(
   return fields;
 }
 
+/**
+ * Energex-only: attach retail_* in $/kWh when DNSP is energex and cents were entered.
+ * Never writes retail_* for Ergon. Does not invent rates.
+ */
+function buildRetailFields(
+  input: SubmitConnectionRequestInput,
+  locationFields: Record<string, unknown>
+): Record<string, unknown> {
+  const dnsp = String(locationFields.dnsp || "").toLowerCase();
+  const profile = String(locationFields.network_tariff_profile || "").toLowerCase();
+  const isEnergex = dnsp === "energex" || profile === "energex_ntc6900";
+  if (!isEnergex) return {};
+
+  const fields: Record<string, unknown> = {};
+  const peak = centsPerKwhToAud(input.retailPeakCents);
+  const shoulder = centsPerKwhToAud(input.retailShoulderCents);
+  const offPeak = centsPerKwhToAud(input.retailOffPeakCents);
+  const fit = centsPerKwhToAud(input.retailFitCents);
+
+  if (peak !== null) fields.retail_peak_rate = peak;
+  if (shoulder !== null) fields.retail_shoulder_rate = shoulder;
+  if (offPeak !== null) fields.retail_off_peak_rate = offPeak;
+  if (fit !== null) fields.retail_fit_rate = fit;
+
+  return fields;
+}
+
 function buildPayload(
   householdId: string,
   input: SubmitConnectionRequestInput
 ): Record<string, unknown> {
+  const locationFields = buildLocationFields(input);
   const payload: Record<string, unknown> = {
     household_id: householdId,
     site_id: input.siteId.trim(),
@@ -115,7 +178,8 @@ function buildPayload(
     phase_count: input.phaseCount,
     status: "pending_review",
     requested_at: new Date().toISOString(),
-    ...buildLocationFields(input),
+    ...locationFields,
+    ...buildRetailFields(input, locationFields),
   };
 
   const notes = input.notes?.trim();
@@ -373,13 +437,7 @@ async function updatePendingRequest(
     status: "pending_review",
   };
 
-  for (const key of [
-    "postcode",
-    "suburb",
-    "state",
-    "dnsp",
-    "network_tariff_profile",
-  ] as const) {
+  for (const key of HOUSEHOLD_SYNC_KEYS) {
     if (key in payload) working[key] = payload[key];
   }
 
@@ -402,8 +460,8 @@ async function updatePendingRequest(
 }
 
 /**
- * Best-effort: write location + suggested tariff onto pilot_households when the
- * row already exists (or RLS allows update). Never fails the connection submit.
+ * Best-effort: write location + suggested tariff + retail_* onto pilot_households
+ * when the row already exists. Never fails the connection submit.
  */
 async function syncLocationToHousehold(
   householdId: string,
@@ -413,13 +471,7 @@ async function syncLocationToHousehold(
   const locationPatch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
-  for (const key of [
-    "postcode",
-    "suburb",
-    "state",
-    "dnsp",
-    "network_tariff_profile",
-  ] as const) {
+  for (const key of HOUSEHOLD_SYNC_KEYS) {
     if (payload[key] !== undefined && payload[key] !== null && payload[key] !== "") {
       locationPatch[key] = payload[key];
     }

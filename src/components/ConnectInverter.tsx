@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.3.1
- * Updated: 1 Aug 2026 — Sungrow: no password field; OAuth owner Accept is the path.
+ * Version: v0.1.4.0
+ * Updated: 7 Aug 2026 — Energex-only bill rates (¢/kWh UI); Ergon unchanged.
  */
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
@@ -39,6 +39,11 @@ interface FormData {
   postcode: string;
   suburb: string;
   state: string;
+  /** Energex-only — display ¢/kWh; converted to $/kWh on submit. */
+  retailPeakCents: string;
+  retailShoulderCents: string;
+  retailOffPeakCents: string;
+  retailFitCents: string;
 }
 
 const SUPPLY_PHASE_OPTIONS: { value: SupplyPhase; label: string }[] = [
@@ -125,6 +130,10 @@ const EMPTY_FORM: FormData = {
   postcode: "",
   suburb: "",
   state: "QLD",
+  retailPeakCents: "",
+  retailShoulderCents: "",
+  retailOffPeakCents: "",
+  retailFitCents: "",
 };
 
 export function ConnectInverter({
@@ -152,6 +161,33 @@ export function ConnectInverter({
 
   const showTariffPreview =
     formData.postcode.replace(/\D/g, "").length >= 4 && tariffPreview.ok;
+
+  const showEnergexRates =
+    tariffPreview.ok &&
+    (tariffPreview.dnsp === "energex" ||
+      tariffPreview.networkTariffProfile === "energex_ntc6900");
+
+  // Drop Energex rate fields from the form when postcode maps back to Ergon.
+  useEffect(() => {
+    if (showEnergexRates) return;
+    setFormData((prev) => {
+      if (
+        !prev.retailPeakCents &&
+        !prev.retailShoulderCents &&
+        !prev.retailOffPeakCents &&
+        !prev.retailFitCents
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        retailPeakCents: "",
+        retailShoulderCents: "",
+        retailOffPeakCents: "",
+        retailFitCents: "",
+      };
+    });
+  }, [showEnergexRates]);
 
   useEffect(() => {
     const checkExistingConnection = async () => {
@@ -287,6 +323,14 @@ export function ConnectInverter({
         postcode: formData.postcode,
         suburb: formData.suburb,
         state: formData.state,
+        retailPeakCents: showEnergexRates ? formData.retailPeakCents : undefined,
+        retailShoulderCents: showEnergexRates
+          ? formData.retailShoulderCents
+          : undefined,
+        retailOffPeakCents: showEnergexRates
+          ? formData.retailOffPeakCents
+          : undefined,
+        retailFitCents: showEnergexRates ? formData.retailFitCents : undefined,
       });
 
       if (!result.ok) {
@@ -559,6 +603,95 @@ export function ConnectInverter({
                         {tariffPreview.summary}
                       </div>
                     )}
+
+                  {showEnergexRates && (
+                    <div className="mt-4 border-t border-slate-700/70 pt-4">
+                      <h4 className="text-sm font-semibold text-emerald-400">
+                        Your electricity rates{" "}
+                        <span className="font-normal text-slate-500">(optional)</span>
+                      </h4>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                        From your electricity bill or plan. Used only to estimate savings — not a
+                        guarantee. Enter figures in ¢/kWh (e.g. 34 for 34¢). You can skip this and
+                        still connect for monitoring.
+                      </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                            Peak ¢/kWh
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={formData.retailPeakCents}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "retailPeakCents",
+                                e.target.value.replace(/[^\d.]/g, "")
+                              )
+                            }
+                            placeholder="e.g. 34"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                            Shoulder ¢/kWh{" "}
+                            <span className="font-normal text-slate-500">(if on bill)</span>
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={formData.retailShoulderCents}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "retailShoulderCents",
+                                e.target.value.replace(/[^\d.]/g, "")
+                              )
+                            }
+                            placeholder="optional"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                            Off-peak ¢/kWh
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={formData.retailOffPeakCents}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "retailOffPeakCents",
+                                e.target.value.replace(/[^\d.]/g, "")
+                              )
+                            }
+                            placeholder="e.g. 22"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                            Solar feed-in ¢/kWh
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={formData.retailFitCents}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "retailFitCents",
+                                e.target.value.replace(/[^\d.]/g, "")
+                              )
+                            }
+                            placeholder="e.g. 8"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div>
