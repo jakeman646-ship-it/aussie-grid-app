@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.39
- * Updated: 6 Aug 2026 — agent control copy: opt-in anytime; 2–4 weeks advisory.
+ * Version: v0.1.2.41
+ * Updated: 13 Aug 2026 — Last 7 days $ + informational decision from live readings.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -37,6 +37,8 @@ import {
   usePilotHousehold,
   usePilotPhase,
   useWeeklyReadout,
+  useRecentDailySavings,
+  useLatestReadingAt,
   formatPhaseCountLabel,
   stopImpersonating,
 } from "@/hooks";
@@ -64,6 +66,7 @@ import { AgentControlBanner } from "@/components/AgentControlBanner";
 import {
   ConnectionHealthSummary,
   EnergySystemsSection,
+  isHouseholdReadingFresh,
 } from "@/components/energySystem";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
 import {
@@ -187,9 +190,13 @@ function MetricCard({ label, value, hint }: { label: string; value: string; hint
 function SavingsTrendsSection({
   readout,
   loading,
+  recentSavings,
+  recentLoading,
 }: {
   readout: import("@/types/pilotConfig").WeeklyReadout | null;
   loading?: boolean;
+  recentSavings?: import("@/hooks/useRecentDailySavings").RecentDailySavingsSummary | null;
+  recentLoading?: boolean;
 }) {
   return (
     <ChartErrorBoundary>
@@ -200,7 +207,12 @@ function SavingsTrendsSection({
           </div>
         }
       >
-        <WeeklyReadoutCharts readout={readout} loading={loading} />
+        <WeeklyReadoutCharts
+          readout={readout}
+          loading={loading}
+          recentSavings={recentSavings}
+          recentLoading={recentLoading}
+        />
       </Suspense>
     </ChartErrorBoundary>
   );
@@ -259,18 +271,9 @@ function WelcomePilotOverview() {
   );
 }
 
-function isHouseholdConnected(household: {
-  status?: string;
-  sungrow_connected_at?: string | null;
-  tesla_connected_at?: string | null;
-  inverter_make?: string | null;
-} | null | undefined): boolean {
-  if (!household) return false;
-  return !!(
-    household.sungrow_connected_at ||
-    household.tesla_connected_at ||
-    (household.status === "active" && household.inverter_make)
-  );
+/** Live connection = recent household_readings (same 2h window as Energy Systems). Never token / *_connected_at. */
+function isHouseholdConnected(lastReadingAt: string | null | undefined): boolean {
+  return isHouseholdReadingFresh(lastReadingAt);
 }
 
 function connectionLabel(household: {
@@ -360,13 +363,13 @@ function NextStepsSection({
     <section className="rounded-xl border border-emerald-600/35 bg-gradient-to-br from-emerald-950/35 via-slate-900/50 to-slate-900/40 px-5 py-5">
       <h3 className="text-lg font-semibold text-emerald-300">
         {awaitingLiveData
-          ? "You're connected — we're preparing your dashboard"
-          : "You're connected — here's what's next"}
+          ? "Waiting on a successful data pull"
+          : "Here's what's next"}
       </h3>
       <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
         {awaitingLiveData
-          ? "Thanks for joining the Aussie Grid Mackay pilot. Your system is linked. The first live readings can take a little while — once they arrive, this page fills in automatically."
-          : "Thanks for being part of the early Mackay pilot group. Your data helps us build something useful for local households."}
+          ? "Thanks for joining the Aussie Grid Mackay pilot. Authorise or Accept is not the same as connected. Live readings appear after a successful data pull — this page fills in then."
+          : "Thanks for being part of the early Mackay pilot group. Your live readings help us build something useful for local households."}
       </p>
       <ol className="mt-4 space-y-3 text-sm text-slate-300">
         <li className="flex gap-3">
@@ -440,7 +443,66 @@ function PreparingLiveDataPanel() {
   );
 }
 
-function PreparingDecisionsPanel() {
+function classifyInformationalMode(snapshot: {
+  solar_kw: number;
+  grid_kw: number;
+  battery_soc: number;
+}): { label: string; sub: string } {
+  const solar = Number(snapshot.solar_kw);
+  const grid = Number(snapshot.grid_kw);
+  const soc = Number(snapshot.battery_soc);
+  const solarKw = Number.isFinite(solar) ? solar : 0;
+  const gridKw = Number.isFinite(grid) ? grid : 0;
+  const batterySoc = Number.isFinite(soc) ? soc : 0;
+
+  // solar ≈ 0 / null and importing from grid
+  if (Math.abs(solarKw) < 0.05 && gridKw > 0) {
+    return {
+      label: "Self-Consume",
+      sub: "Night / low solar — use battery before grid if you choose. Informational only.",
+    };
+  }
+  // surplus + high SOC
+  if (solarKw >= 1.0 && batterySoc >= 80) {
+    return {
+      label: "Export-ready",
+      sub: "Surplus available if you choose. Informational only.",
+    };
+  }
+  return {
+    label: "Self-Consume",
+    sub: "Default monitoring view. Informational only.",
+  };
+}
+
+function PreparingDecisionsPanel({
+  liveSnapshot,
+}: {
+  liveSnapshot?: {
+    solar_kw: number;
+    grid_kw: number;
+    battery_soc: number;
+  } | null;
+}) {
+  if (liveSnapshot) {
+    const view = classifyInformationalMode(liveSnapshot);
+    return (
+      <section
+        role="status"
+        className="rounded-xl border border-slate-700/80 bg-slate-900/55 px-5 py-6"
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400/85">
+          Today&apos;s energy view
+        </p>
+        <h2 className="mt-1 text-lg font-semibold text-slate-100">{view.label}</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">{view.sub}</p>
+        <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          Informational view from live readings — not an agent decision, not automatic control.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section
       role="status"
@@ -723,7 +785,7 @@ function CompactConnectionHealthLine({
         Connection Health
       </p>
       <p className="mt-1 text-sm text-slate-200">
-        Monitoring · read-only
+        {fromLiveReadings ? "Monitoring · read-only" : "Waiting on a successful data pull"}
         {lastReadingLabel ? (
           <>
             {" · "}
@@ -731,7 +793,7 @@ function CompactConnectionHealthLine({
             {fromLiveReadings ? " · from live readings" : ""}
           </>
         ) : (
-          " · Waiting on next reading"
+          " · no recent household reading"
         )}
       </p>
       <p className="mt-0.5 text-xs text-slate-500">
@@ -768,6 +830,7 @@ export function Dashboard({
   const decisionQuery = useLatestDecision(householdId, { isImpersonating });
   const readingsQuery = useHouseholdReadings(householdId);
   const readoutQuery = useWeeklyReadout(householdId);
+  const recentSavingsQuery = useRecentDailySavings(householdId);
   const outcomeRanksQuery = useOutcomeRanks(householdId, { isImpersonating });
 
   const loading = householdQuery.loading || snapshotQuery.loading || decisionQuery.loading;
@@ -780,6 +843,11 @@ export function Dashboard({
   const hasLiveSnapshot =
     snapshot != null && snapshot.data_source !== "no_data" && snapshot.data_source !== "simulated";
 
+  // Prefer snapshot timestamp only when it came from real readings (never the Date.now() fallback).
+  const snapshotReadingAt =
+    hasLiveSnapshot && snapshot?.last_updated ? snapshot.last_updated : null;
+  const { lastReadingAt } = useLatestReadingAt(householdId, snapshotReadingAt);
+
   const impersonationDataReady =
     !householdQuery.loading && !snapshotQuery.loading && !decisionQuery.loading;
 
@@ -789,6 +857,7 @@ export function Dashboard({
     decisionQuery.refetch();
     readingsQuery.refetch();
     readoutQuery.refetch();
+    recentSavingsQuery.refetch();
     phaseQuery.refetch();
   };
 
@@ -867,15 +936,16 @@ export function Dashboard({
   const effectivePending = hasPendingConnectionRequest || hasPendingFromDb;
   const pilotPhase = phaseQuery.phase;
   const agentControlMode: AgentControlMode = household?.agent_control_mode === "agent_control" ? "agent_control" : "read_only";
-  const householdConnected = isHouseholdConnected(household);
+  const householdConnected = isHouseholdConnected(lastReadingAt);
+  const householdLinked = Boolean(household);
   const brand = connectionLabel(household);
   const phaseCountLabel = formatPhaseCountLabel(household?.phase_count);
 
-  // Linked / connected but no usable live telemetry yet — collapse empty cards.
+  // Registry row (or pending) but no usable live telemetry yet — collapse empty cards.
   const awaitingLiveData =
     impersonationDataReady &&
     !hasLiveSnapshot &&
-    (Boolean(household) || householdConnected);
+    (householdLinked || effectivePending);
 
   const impersonationDataNotice =
     isImpersonating && impersonationDataReady
@@ -950,7 +1020,11 @@ export function Dashboard({
                 <p className="text-sm text-slate-300">
                   {[
                     household.inverter_make || null,
-                    householdConnected ? "Connected" : effectivePending ? "Connection pending" : "Not connected yet",
+                    householdConnected
+                      ? "Connected"
+                      : effectivePending
+                        ? "Connection pending"
+                        : "Waiting on live readings",
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -1099,7 +1173,12 @@ export function Dashboard({
                 }
               />
             </div>
-            <SavingsTrendsSection readout={readoutQuery.data} loading={readoutQuery.loading} />
+            <SavingsTrendsSection
+              readout={readoutQuery.data}
+              loading={readoutQuery.loading}
+              recentSavings={recentSavingsQuery.data}
+              recentLoading={recentSavingsQuery.loading}
+            />
           </section>
         </div>
       )}
@@ -1137,9 +1216,9 @@ export function Dashboard({
       {/* 9. Connection Health — one-line; full detail in How this works */}
       <CompactConnectionHealthLine
         lastReadingLabel={
-          hasLiveSnapshot && snapshot ? formatTimestamp(snapshot.last_updated) : null
+          lastReadingAt ? formatTimestamp(lastReadingAt) : null
         }
-        fromLiveReadings={hasLiveSnapshot}
+        fromLiveReadings={householdConnected}
       />
 
       {/* 10. Priorities — compact */}
@@ -1175,15 +1254,16 @@ export function Dashboard({
                 <div className="flex items-center gap-3">
                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
                   <span className="text-sm font-medium text-slate-200">
-                    {brand} system connected
+                    {brand} monitoring · read-only
                   </span>
                   <span className="text-xs text-slate-500">
-                    since{" "}
-                    {new Date(
-                      household.tesla_connected_at ||
-                        household.sungrow_connected_at ||
-                        Date.now()
-                    ).toLocaleDateString()}
+                    last reading{" "}
+                    {lastReadingAt
+                      ? new Date(lastReadingAt).toLocaleString(undefined, {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })
+                      : "—"}
                   </span>
                 </div>
               ) : effectivePending ? (
@@ -1202,7 +1282,7 @@ export function Dashboard({
                 <div className="flex items-center gap-3">
                   <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
                   <span className="text-sm font-medium text-slate-200">
-                    {brand} system not connected yet
+                    Waiting on a successful data pull
                   </span>
                 </div>
               )}
@@ -1222,13 +1302,13 @@ export function Dashboard({
             householdId={householdId}
             inverterMake={household?.inverter_make}
             customerFacing={energySystemsCustomerFacing}
-            lastReadingAt={hasLiveSnapshot ? snapshot?.last_updated ?? null : null}
+            lastReadingAt={lastReadingAt}
           />
           <EnergySystemsSection
             householdId={householdId}
             inverterMake={household?.inverter_make}
             customerFacing={energySystemsCustomerFacing}
-            lastReadingAt={hasLiveSnapshot ? snapshot?.last_updated ?? null : null}
+            lastReadingAt={lastReadingAt}
           />
 
           <AgentControlBanner
@@ -1239,16 +1319,16 @@ export function Dashboard({
             onActivated={() => householdQuery.refetch()}
           />
 
-          {!householdConnected && <WelcomePilotOverview />}
+          {!householdLinked && <WelcomePilotOverview />}
 
           <ConnectYourSystemPrompt
             inverterMake={household?.inverter_make}
-            isConnected={householdConnected}
+            isConnected={householdLinked}
             onConnect={onConnectInverter}
           />
 
           <NextStepsSection
-            isConnected={householdConnected}
+            isConnected={householdLinked}
             inverterMake={household?.inverter_make}
             onConnect={onConnectInverter}
             awaitingLiveData={awaitingLiveData}
@@ -1261,7 +1341,17 @@ export function Dashboard({
 
       {/* 13. Today's Energy Decision / Suggestions */}
       {awaitingLiveData || !decision ? (
-        <PreparingDecisionsPanel />
+        <PreparingDecisionsPanel
+          liveSnapshot={
+            hasLiveSnapshot && snapshot
+              ? {
+                  solar_kw: snapshot.solar_kw,
+                  grid_kw: snapshot.grid_kw,
+                  battery_soc: snapshot.battery_soc,
+                }
+              : null
+          }
+        />
       ) : (
         <section className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">

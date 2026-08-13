@@ -1,7 +1,8 @@
 /**
  * Weekly Readout Charts — savings opportunities + projected bill reduction
  * File: src/components/WeeklyReadoutCharts.tsx
- * Version: v0.1.2.18
+ * Version: v0.1.2.19
+ * Updated: 13 Aug 2026 — Last 7 days from daily_savings when agent weekly_readouts missing.
  */
 import {
   BarChart,
@@ -17,12 +18,16 @@ import {
   Legend,
 } from "recharts";
 import type { WeeklyReadout } from "@/types/pilotConfig";
+import type { RecentDailySavingsSummary } from "@/hooks/useRecentDailySavings";
 
 const OPP_COLORS = ["#22c55e", "#16a34a", "#4ade80", "#86efac", "#bbf7d0"];
 
 interface WeeklyReadoutChartsProps {
   readout: WeeklyReadout | null;
   loading?: boolean;
+  /** Fallback when weekly_readouts empty — Measured daily_savings rows. */
+  recentSavings?: RecentDailySavingsSummary | null;
+  recentLoading?: boolean;
 }
 
 function formatAud(value: number): string {
@@ -51,8 +56,13 @@ function CustomPieTooltip({ active, payload }: { active?: boolean; payload?: { n
   );
 }
 
-export function WeeklyReadoutCharts({ readout, loading }: WeeklyReadoutChartsProps) {
-  if (loading) {
+export function WeeklyReadoutCharts({
+  readout,
+  loading,
+  recentSavings,
+  recentLoading,
+}: WeeklyReadoutChartsProps) {
+  if (loading || recentLoading) {
     return (
       <div className="mt-4 rounded-md bg-slate-900/60 px-3 py-4 text-sm text-slate-400">
         Loading weekly readout…
@@ -61,6 +71,21 @@ export function WeeklyReadoutCharts({ readout, loading }: WeeklyReadoutChartsPro
   }
 
   if (!readout) {
+    if (recentSavings && recentSavings.dayCount >= 7) {
+      return (
+        <div className="mt-4 rounded-md border border-emerald-800/40 bg-slate-900/60 px-4 py-4">
+          <p className="text-sm font-medium text-emerald-300">Last 7 days</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-100">
+            {formatAud(recentSavings.totalAud)}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            {recentSavings.dayCount} days with data · Estimated bill impact · Ergon 12D · not a
+            retailer bill
+          </p>
+        </div>
+      );
+    }
+
     return (
       <div className="mt-4 rounded-md bg-slate-900/60 px-3 py-4 text-sm text-slate-400">
         Weekly readout will appear here once the agent has compiled a full week of savings data.
