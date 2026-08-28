@@ -1,9 +1,8 @@
 ﻿/**
  * Aussie Grid — usePilotHousehold hook
  * File: src/hooks/usePilotHousehold.ts
- * Version: v0.1.2.24
- * Lines: 98
- * Updated: 9 Jul 2026 — impersonation mode: missing registry row is empty state, not an error.
+ * Version: v0.1.2.25
+ * Updated: 28 Aug 2026 — state/dnsp/profile for priced-$ gate (fail-open if columns blocked).
  */
 import { useState, useEffect } from "react";
 import { isSupabaseNoRowsError } from "@/lib/impersonationDataStatus";
@@ -29,12 +28,32 @@ export interface PilotHousehold {
   agent_control_mode: "read_only" | "agent_control" | null;
   agent_control_activated_at: string | null;
   community_id: string | null;
+  state: string | null;
+  dnsp: string | null;
+  network_tariff_profile: string | null;
 }
 
 export function formatPhaseCountLabel(phaseCount: number | null | undefined): string | null {
   if (phaseCount === 1) return "Single Phase";
   if (phaseCount === 3) return "3 Phase";
   return null;
+}
+
+const SELECT_WITH_LOCATION =
+  "household_id, email, status, inverter_make, battery_capacity_kwh, solar_kw, phase_count, consent_given, is_test, sungrow_plant_id, sungrow_connected_at, inverter_serial, tesla_site_id, tesla_connected_at, agent_control_mode, agent_control_activated_at, community_id, state, dnsp, network_tariff_profile";
+
+const SELECT_CORE =
+  "household_id, email, status, inverter_make, battery_capacity_kwh, solar_kw, phase_count, consent_given, is_test, sungrow_plant_id, sungrow_connected_at, inverter_serial, tesla_site_id, tesla_connected_at, agent_control_mode, agent_control_activated_at, community_id";
+
+function isMissingColumnError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; message?: string };
+  const msg = (e.message ?? "").toLowerCase();
+  const code = String(e.code ?? "");
+  return (
+    code === "PGRST204" ||
+    /column .* does not exist|could not find.*column|schema cache/i.test(msg)
+  );
 }
 
 export interface UsePilotHouseholdOptions {
@@ -65,16 +84,34 @@ export function usePilotHousehold(
     try {
       // Explicit safe columns only — select("*") fails after harden_connection_rls.sql v1.1
       // (passwords/tokens/keys are not granted to anon/authenticated).
-      // Inline string literal required: dynamic .select() strings type as GenericStringError.
-      const { data: row, error: queryError } = await supabase
+      let row: PilotHousehold | null = null;
+      const first = await supabase
         .from("pilot_households")
-        .select(
-          "household_id, email, status, inverter_make, battery_capacity_kwh, solar_kw, phase_count, consent_given, is_test, sungrow_plant_id, sungrow_connected_at, inverter_serial, tesla_site_id, tesla_connected_at, agent_control_mode, agent_control_activated_at, community_id",
-        )
+        .select(SELECT_WITH_LOCATION)
         .eq("household_id", householdId)
         .abortSignal(queryTimeout())
-        .returns<PilotHousehold>()
         .maybeSingle();
+      let queryError = first.error;
+      row = (first.data as PilotHousehold | null) ?? null;
+
+      if (queryError && isMissingColumnError(queryError)) {
+        const retry = await supabase
+          .from("pilot_households")
+          .select(SELECT_CORE)
+          .eq("household_id", householdId)
+          .abortSignal(queryTimeout())
+          .maybeSingle();
+        const retryRow = retry.data as PilotHousehold | null;
+        row = retryRow
+          ? {
+              ...retryRow,
+              state: null,
+              dnsp: null,
+              network_tariff_profile: null,
+            }
+          : null;
+        queryError = retry.error;
+      }
 
       if (queryError) throw queryError;
 

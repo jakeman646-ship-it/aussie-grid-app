@@ -1,9 +1,11 @@
 ﻿/**
  * Aussie Grid — Savings calculation
  * File: src/lib/calculateSavings.ts
- * Version: v0.1.2.17
+ * Version: v0.1.2.18
  *
  * Ergon Tariff 12D TOU + FIT — mirrors services/savings_engine.py
+ * Do not call calculateSavingsFromReadings for NSW / unpriced households.
+ * Gate with isHouseholdPricedForDollars in dnspLookup.ts.
  */
 export const TARIFF_VERSION = "v2_tou_ergon_12d_household_readings";
 const TIMEZONE = "Australia/Brisbane";
@@ -138,6 +140,8 @@ export function calculateDailySavingsFromReadings(readings: Reading[]): Map<stri
 }
 
 export function calculateSavingsFromReadings(readings: Reading[]): SavingsResult {
+  // Ergon 12D only. Callers must not invoke this for NSW / unpriced households.
+  // See isHouseholdPricedForDollars in dnspLookup.ts.
   const empty: SavingsResult = {
     yesterdaySavings: 0,
     cumulativeSavings: 0,

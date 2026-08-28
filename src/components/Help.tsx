@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Help & FAQ
  * File: src/components/Help.tsx
- * Version: v0.1.2.1
- * Updated: 6 Aug 2026 — listen-first honesty; preference anytime; no 4–8 week control promise.
+ * Version: v0.1.2.2
+ * Updated: 28 Aug 2026 — volunteer monitoring copy; QLD $ until bill tariff.
  */
 import { useState } from 'react';
 
@@ -48,7 +48,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "Where can I see my daily savings or agent suggestions?",
-    answer: "On the main Dashboard you'll see live readings (when available), Estimated savings labelled as estimated / Ergon 12D where shown, and mode suggestions when the agent has enough data to record a decision. Figures are sample-based and not a retailer bill. A few weeks of readings usually makes the picture clearer.",
+    answer: "On the main Dashboard you'll see live readings (when available). Estimated savings are labelled as estimated / Ergon 12D for QLD households with a priced tariff. Volunteer homes outside QLD can connect for monitoring — dollar estimates stay QLD (Ergon/Energex) until we have your bill tariff. Mode suggestions appear when the agent has enough data. Figures are sample-based and not a retailer bill.",
   },
   {
     question: "Can I leave the pilot at any time?",
@@ -94,6 +94,8 @@ export function Help({ onBack }: HelpProps) {
             This page answers common questions from households in the Aussie Grid Mackay Pilot.
             Default is listen-first: read live data, show Estimated figures, leave decisions with you.
             Optional agent control preference is available when your system is connected — you choose if/when.
+            Volunteer homes outside QLD can connect for monitoring. Dollar estimates stay QLD (Ergon/Energex)
+            until we have your bill tariff.
           </p>
         </div>
 

@@ -1,8 +1,8 @@
 /**
  * Weekly Readout Charts — savings opportunities + projected bill reduction
  * File: src/components/WeeklyReadoutCharts.tsx
- * Version: v0.1.2.19
- * Updated: 13 Aug 2026 — Last 7 days from daily_savings when agent weekly_readouts missing.
+ * Version: v0.1.2.20
+ * Updated: 28 Aug 2026 — hide Ergon $ charts when household is unpriced.
  */
 import {
   BarChart,
@@ -28,6 +28,8 @@ interface WeeklyReadoutChartsProps {
   /** Fallback when weekly_readouts empty — Measured daily_savings rows. */
   recentSavings?: RecentDailySavingsSummary | null;
   recentLoading?: boolean;
+  /** False for NSW / unpriced — do not render Ergon $ charts. */
+  dollarsPriced?: boolean;
 }
 
 function formatAud(value: number): string {
@@ -61,7 +63,19 @@ export function WeeklyReadoutCharts({
   loading,
   recentSavings,
   recentLoading,
+  dollarsPriced = true,
 }: WeeklyReadoutChartsProps) {
+  if (!dollarsPriced) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-700/80 bg-slate-900/60 px-4 py-4">
+        <p className="text-sm font-medium text-slate-200">Monitoring only — tariff not set</p>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+          Weekly dollar readout stays QLD (Ergon/Energex) until we have your bill tariff.
+        </p>
+      </div>
+    );
+  }
+
   if (loading || recentLoading) {
     return (
       <div className="mt-4 rounded-md bg-slate-900/60 px-3 py-4 text-sm text-slate-400">

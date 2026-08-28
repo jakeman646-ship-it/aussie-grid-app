@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.41
- * Updated: 13 Aug 2026 — Last 7 days $ + informational decision from live readings.
+ * Version: v0.1.2.42
+ * Updated: 28 Aug 2026 — hide Ergon $ when household is unpriced (NSW volunteer).
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -57,6 +57,7 @@ import {
   formatModeLabel,
   formatTimestamp,
 } from "@/lib/modeLabels";
+import { isHouseholdPricedForDollars } from "@/lib/dnspLookup";
 import { formatAppVersion } from "@/lib/version";
 import type { AgentDecision } from "@/types/agentDecision";
 import type { Mode } from "@/types/mode";
@@ -192,11 +193,13 @@ function SavingsTrendsSection({
   loading,
   recentSavings,
   recentLoading,
+  dollarsPriced = true,
 }: {
   readout: import("@/types/pilotConfig").WeeklyReadout | null;
   loading?: boolean;
   recentSavings?: import("@/hooks/useRecentDailySavings").RecentDailySavingsSummary | null;
   recentLoading?: boolean;
+  dollarsPriced?: boolean;
 }) {
   return (
     <ChartErrorBoundary>
@@ -212,6 +215,7 @@ function SavingsTrendsSection({
           loading={loading}
           recentSavings={recentSavings}
           recentLoading={recentLoading}
+          dollarsPriced={dollarsPriced}
         />
       </Suspense>
     </ChartErrorBoundary>
@@ -826,7 +830,15 @@ export function Dashboard({
   const householdQuery = usePilotHousehold(effectiveHouseholdId, { isImpersonating });
   const phaseQuery = usePilotPhase();
   const householdId = householdQuery.data?.household_id ?? effectiveHouseholdId;
-  const snapshotQuery = useHouseholdSnapshot(householdId, { isImpersonating });
+  const householdForPriced = householdQuery.data;
+  const dollarsPriced = householdForPriced
+    ? isHouseholdPricedForDollars({
+        state: householdForPriced.state,
+        dnsp: householdForPriced.dnsp,
+        networkTariffProfile: householdForPriced.network_tariff_profile,
+      })
+    : true;
+  const snapshotQuery = useHouseholdSnapshot(householdId, { isImpersonating, dollarsPriced });
   const decisionQuery = useLatestDecision(householdId, { isImpersonating });
   const readingsQuery = useHouseholdReadings(householdId);
   const readoutQuery = useWeeklyReadout(householdId);
@@ -992,11 +1004,17 @@ export function Dashboard({
   });
   const friendlyReason = buildFriendlyReason(reason, String(mode));
 
-  const yesterdaySavings = formatSavingsAud(snapshot?.yesterday_savings_aud);
-  const cumulativeSavings = formatSavingsAud(snapshot?.cumulative_savings_aud);
-  const savingsHint = snapshot?.data_quality_note
-    ? `${snapshot.data_quality_note} • Ergon 12D TOU + 6c FIT`
-    : "Calculated from your live solar + battery data + Ergon tariffs";
+  const yesterdaySavings = dollarsPriced
+    ? formatSavingsAud(snapshot?.yesterday_savings_aud)
+    : "—";
+  const cumulativeSavings = dollarsPriced
+    ? formatSavingsAud(snapshot?.cumulative_savings_aud)
+    : "—";
+  const savingsHint = !dollarsPriced
+    ? "Monitoring only — tariff not set"
+    : snapshot?.data_quality_note
+      ? `${snapshot.data_quality_note} • Ergon 12D TOU + 6c FIT`
+      : "Calculated from your live solar + battery data + Ergon tariffs";
 
   return (
     <div className="space-y-6 bg-slate-950 p-6 text-slate-100">
@@ -1153,6 +1171,16 @@ export function Dashboard({
             <h2 className="text-[11px] font-semibold uppercase tracking-wider text-emerald-500/90">
               Estimated savings
             </h2>
+            {!dollarsPriced ? (
+              <div className="mt-3 rounded-md border border-slate-700/80 bg-slate-950/50 px-4 py-3">
+                <p className="text-sm font-medium text-slate-200">Monitoring only — tariff not set</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                  Volunteer homes outside QLD can connect for monitoring. Dollar estimates stay QLD
+                  (Ergon/Energex) until we have your bill tariff.
+                </p>
+              </div>
+            ) : (
+              <>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <MetricCard
                 label="Yesterday's savings"
@@ -1178,7 +1206,10 @@ export function Dashboard({
               loading={readoutQuery.loading}
               recentSavings={recentSavingsQuery.data}
               recentLoading={recentSavingsQuery.loading}
+              dollarsPriced={dollarsPriced}
             />
+              </>
+            )}
           </section>
         </div>
       )}

@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.4.0
- * Updated: 7 Aug 2026 — Energex-only bill rates (¢/kWh UI); Ergon unchanged.
+ * Version: v0.1.4.1
+ * Updated: 28 Aug 2026 — volunteer homes can connect for monitoring (QLD $ until bill tariff).
  */
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
@@ -426,6 +426,10 @@ export function ConnectInverter({
             <div>
               <h1 className="text-2xl font-semibold text-emerald-400">{copy.title}</h1>
               <p className="text-sm text-slate-400">Mackay Pilot — Pre-pilot phase</p>
+              <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-500">
+                Volunteer homes outside QLD can connect for monitoring. Dollar estimates stay QLD
+                (Ergon/Energex) until we have your bill tariff.
+              </p>
             </div>
           </div>
         </div>
@@ -592,7 +596,11 @@ export function ConnectInverter({
 
                   {showTariffPreview && (
                     <div className="mt-3 rounded-md border border-emerald-700/40 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-100/95">
-                      <span className="font-medium text-emerald-300">Suggested tariff: </span>
+                      <span className="font-medium text-emerald-300">
+                        {tariffPreview.networkTariffProfile
+                          ? "Suggested tariff: "
+                          : "Suggested network: "}
+                      </span>
                       {tariffPreview.summary}
                     </div>
                   )}
@@ -866,6 +874,10 @@ export function ConnectInverter({
           <p>
             Aussie Grid Mackay Pilot — Pre-pilot learning phase • Read-only access only • Your system stays under your
             full control
+          </p>
+          <p>
+            Volunteer homes outside QLD can connect for monitoring. Dollar estimates stay QLD (Ergon/Energex)
+            until we have your bill tariff.
           </p>
         </div>
       </div>

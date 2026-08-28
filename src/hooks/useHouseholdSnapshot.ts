@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.28
- * Updated: 3 Aug 2026 — estimated $ only from daily_savings (no client dual-math).
+ * Version: v0.1.2.29
+ * Updated: 28 Aug 2026 — skip attaching Ergon $ when household is unpriced (NSW volunteer).
  */
 import { useState, useEffect } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
@@ -27,6 +27,8 @@ export interface HouseholdSnapshot {
 interface UseHouseholdSnapshotOptions {
   /** When true, query failures return an empty snapshot instead of blocking the dashboard. */
   isImpersonating?: boolean;
+  /** False for NSW / unpriced households — readings stay; Ergon $ must not appear. */
+  dollarsPriced?: boolean;
 }
 
 interface UseHouseholdSnapshotResult {
@@ -97,7 +99,7 @@ export function useHouseholdSnapshot(
   householdId: string,
   options: UseHouseholdSnapshotOptions = {},
 ): UseHouseholdSnapshotResult {
-  const { isImpersonating = false } = options;
+  const { isImpersonating = false, dollarsPriced = true } = options;
   const [data, setData] = useState<HouseholdSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -148,12 +150,15 @@ export function useHouseholdSnapshot(
       );
 
       // Server log only — never client dual-math (v1 formula ≠ savings_engine v2).
+      // Unpriced (NSW volunteer) must not surface Ergon 12D even if stale daily_savings rows exist.
       const yesterdaySavings =
-        loggedYesterday?.savings_aud != null
+        dollarsPriced && loggedYesterday?.savings_aud != null
           ? Number(loggedYesterday.savings_aud)
           : null;
       const cumulativeSavings =
-        savingsRows.length > 0 ? Number(loggedCumulative.toFixed(2)) : null;
+        dollarsPriced && savingsRows.length > 0
+          ? Number(loggedCumulative.toFixed(2))
+          : null;
 
       const latestRow =
         readingsData.length > 0 ? readingsData[readingsData.length - 1] : null;
@@ -183,9 +188,11 @@ export function useHouseholdSnapshot(
         data_source: hasLiveReadings ? "supabase" : "no_data",
         days_of_data: daysOfData,
         data_quality_note: hasLiveReadings
-          ? loggedYesterday
-            ? `Estimated bill impact from daily_savings log • Ergon 12D`
-            : `Live readings available — estimated $ appears after the daily savings run`
+          ? !dollarsPriced
+            ? "Live readings available — monitoring only (tariff not priced)"
+            : loggedYesterday
+              ? `Estimated bill impact from daily_savings log • Ergon 12D`
+              : `Live readings available — estimated $ appears after the daily savings run`
           : "No live readings yet — your dashboard will fill in after the first successful data pull",
       };
 
@@ -213,7 +220,7 @@ export function useHouseholdSnapshot(
       fetchSnapshot();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [householdId, isImpersonating]);
+  }, [householdId, isImpersonating, dollarsPriced]);
 
   return {
     data,
