@@ -1,10 +1,8 @@
 ﻿/**
  * Aussie Grid — Vite Config
  * File: vite.config.ts
- * Version: v0.1.2.17
- * Lines: 103
- * Updated: 7 Jul 2026 — process.env wins over .env files so Vercel build-time
- *          vars are always baked into the client bundle.
+ * Version: v0.1.2.18
+ * Updated: 28 Aug 2026 — bake VITE_PILOT_INVITE_CODE for Login Create account.
  */
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
@@ -22,6 +20,7 @@ const SUPABASE_ENV_KEYS = [
   "VITE_SUPABASE_PUBLISHABLE_KEY",
   "SUPABASE_ANON_KEY",
   "SUPABASE_PUBLISHABLE_KEY",
+  "VITE_PILOT_INVITE_CODE",
 ] as const;
 
 /** Merge Vercel/CI process.env over file-based env so production builds never bake empty creds. */
@@ -58,10 +57,13 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
-    // Bake Supabase creds into the client bundle from any supported env var name.
+    // Bake Supabase creds + invite code into the client bundle from env.
     define: {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
       "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabaseAnonKey),
+      "import.meta.env.VITE_PILOT_INVITE_CODE": JSON.stringify(
+        sanitizeEnv(env.VITE_PILOT_INVITE_CODE)
+      ),
     },
     build: {
       rolldownOptions: {
