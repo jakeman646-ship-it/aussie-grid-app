@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.4.1
- * Updated: 28 Aug 2026 — volunteer homes can connect for monitoring (QLD $ until bill tariff).
+ * Version: v0.1.5.1
+ * Updated: 29 Aug 2026 — optional bill rates after 4-digit postcode; NSW still unpriced.
  */
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
@@ -39,7 +39,8 @@ interface FormData {
   postcode: string;
   suburb: string;
   state: string;
-  /** Energex-only — display ¢/kWh; converted to $/kWh on submit. */
+  /** Optional owner-entered bill rates — display ¢/kWh; converted to $/kWh on submit. */
+  retailPlanName: string;
   retailPeakCents: string;
   retailShoulderCents: string;
   retailOffPeakCents: string;
@@ -130,11 +131,38 @@ const EMPTY_FORM: FormData = {
   postcode: "",
   suburb: "",
   state: "QLD",
+  retailPlanName: "",
   retailPeakCents: "",
   retailShoulderCents: "",
   retailOffPeakCents: "",
   retailFitCents: "",
 };
+
+function optionalRatesCaption(
+  dnsp: string | null,
+  state: string,
+  networkTariffProfile: string | null
+): string {
+  const d = (dnsp || "").toLowerCase();
+  const st = state.trim().toUpperCase();
+  const profile = (networkTariffProfile || "").toLowerCase();
+  const nsw =
+    st === "NSW" ||
+    st === "NEW SOUTH WALES" ||
+    d === "ausgrid" ||
+    d === "endeavour" ||
+    d === "essential";
+  if (nsw) {
+    return "Optional. Stored for later. Bill impact is not priced for NSW yet.";
+  }
+  if (d === "energex" || profile === "energex_ntc6900") {
+    return "From your electricity bill or plan. Used only to estimate savings — not a guarantee. Enter figures in ¢/kWh (e.g. 34 for 34¢). You can skip this and still connect for monitoring.";
+  }
+  if (d === "ergon" || profile === "ergon_12d") {
+    return "Optional. Enter ¢/kWh from your bill if you want an override. Default remains Ergon 12D if you leave this blank.";
+  }
+  return "Optional. From your bill. Monitoring works without this. Enter ¢/kWh (e.g. 34 for 34¢).";
+}
 
 export function ConnectInverter({
   onBack,
@@ -159,19 +187,16 @@ export function ConnectInverter({
     [formData.postcode, formData.state]
   );
 
-  const showTariffPreview =
-    formData.postcode.replace(/\D/g, "").length >= 4 && tariffPreview.ok;
+  const postcodeDigits = formData.postcode.replace(/\D/g, "");
+  const showTariffPreview = postcodeDigits.length >= 4 && tariffPreview.ok;
+  const showOptionalRates = postcodeDigits.length >= 4;
 
-  const showEnergexRates =
-    tariffPreview.ok &&
-    (tariffPreview.dnsp === "energex" ||
-      tariffPreview.networkTariffProfile === "energex_ntc6900");
-
-  // Drop Energex rate fields from the form when postcode maps back to Ergon.
+  // Wipe owner-entered cents only when the postcode is cleared — not when DNSP changes.
   useEffect(() => {
-    if (showEnergexRates) return;
+    if (postcodeDigits.length > 0) return;
     setFormData((prev) => {
       if (
+        !prev.retailPlanName &&
         !prev.retailPeakCents &&
         !prev.retailShoulderCents &&
         !prev.retailOffPeakCents &&
@@ -181,13 +206,14 @@ export function ConnectInverter({
       }
       return {
         ...prev,
+        retailPlanName: "",
         retailPeakCents: "",
         retailShoulderCents: "",
         retailOffPeakCents: "",
         retailFitCents: "",
       };
     });
-  }, [showEnergexRates]);
+  }, [postcodeDigits.length]);
 
   useEffect(() => {
     const checkExistingConnection = async () => {
@@ -323,14 +349,11 @@ export function ConnectInverter({
         postcode: formData.postcode,
         suburb: formData.suburb,
         state: formData.state,
-        retailPeakCents: showEnergexRates ? formData.retailPeakCents : undefined,
-        retailShoulderCents: showEnergexRates
-          ? formData.retailShoulderCents
-          : undefined,
-        retailOffPeakCents: showEnergexRates
-          ? formData.retailOffPeakCents
-          : undefined,
-        retailFitCents: showEnergexRates ? formData.retailFitCents : undefined,
+        retailPlanName: formData.retailPlanName,
+        retailPeakCents: formData.retailPeakCents,
+        retailShoulderCents: formData.retailShoulderCents,
+        retailOffPeakCents: formData.retailOffPeakCents,
+        retailFitCents: formData.retailFitCents,
       });
 
       if (!result.ok) {
@@ -612,17 +635,34 @@ export function ConnectInverter({
                       </div>
                     )}
 
-                  {showEnergexRates && (
+                  {showOptionalRates && (
                     <div className="mt-4 border-t border-slate-700/70 pt-4">
                       <h4 className="text-sm font-semibold text-emerald-400">
                         Your electricity rates{" "}
                         <span className="font-normal text-slate-500">(optional)</span>
                       </h4>
                       <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                        From your electricity bill or plan. Used only to estimate savings — not a
-                        guarantee. Enter figures in ¢/kWh (e.g. 34 for 34¢). You can skip this and
-                        still connect for monitoring.
+                        {optionalRatesCaption(
+                          tariffPreview.dnsp,
+                          formData.state,
+                          tariffPreview.networkTariffProfile
+                        )}
                       </p>
+                      <div className="mt-3">
+                        <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                          Plan name{" "}
+                          <span className="font-normal text-slate-500">(optional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.retailPlanName}
+                          onChange={(e) =>
+                            handleInputChange("retailPlanName", e.target.value.slice(0, 120))
+                          }
+                          placeholder="e.g. Origin TOU"
+                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
                         <div>
                           <label className="mb-1.5 block text-sm font-medium text-slate-300">

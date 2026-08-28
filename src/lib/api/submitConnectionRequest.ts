@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Connection request submit helper
  * File: src/lib/api/submitConnectionRequest.ts
- * Version: v0.1.4.0
- * Updated: 7 Aug 2026 — Energex optional retail_* (¢ UI → store $/kWh); soft-drop columns.
+ * Version: v0.1.5.0
+ * Updated: 29 Aug 2026 — owner-entered retail_* for any DNSP (¢ UI → store $/kWh).
  */
 import {
   getSupabaseConfigIssue,
@@ -35,10 +35,11 @@ export interface SubmitConnectionRequestInput {
   suburb?: string;
   state?: string;
   /**
-   * Energex-only bill rates in ¢/kWh (plain AU display).
+   * Owner-entered bill rates in ¢/kWh (plain AU display). Any postcode.
    * Converted to $/kWh for DB (same convention as CEO Confirm retail).
-   * All optional — blank → omit; submit still succeeds.
+   * All optional — blank → omit; submit still succeeds. Never invents rates.
    */
+  retailPlanName?: string;
   retailPeakCents?: string;
   retailShoulderCents?: string;
   retailOffPeakCents?: string;
@@ -76,6 +77,7 @@ const HOUSEHOLD_SYNC_KEYS = [
   "state",
   "dnsp",
   "network_tariff_profile",
+  "retail_plan_id",
   "retail_peak_rate",
   "retail_shoulder_rate",
   "retail_off_peak_rate",
@@ -90,6 +92,14 @@ export function centsPerKwhToAud(cents: string | undefined | null): number | nul
   const n = Number.parseFloat(cleaned);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round((n / 100) * 1e6) / 1e6;
+}
+
+/** Convert stored $/kWh → ¢/kWh display string for the rates form. Blank if missing. */
+export function audPerKwhToCentsDisplay(aud: number | null | undefined): string {
+  if (aud === null || aud === undefined) return "";
+  if (!Number.isFinite(aud) || aud < 0) return "";
+  const cents = Math.round(aud * 100 * 1e4) / 1e4;
+  return String(cents);
 }
 
 export function resolveHouseholdId(
@@ -139,19 +149,15 @@ function buildLocationFields(
 }
 
 /**
- * Energex-only: attach retail_* in $/kWh when DNSP is energex and cents were entered.
- * Never writes retail_* for Ergon. Does not invent rates.
+ * Owner-entered retail snapshot: attach retail_* in $/kWh when any cents were entered,
+ * and retail_plan_id when a plan name is present. Any DNSP / postcode.
+ * Does not invent rates. Does not set network_tariff_profile (that stays on location).
  */
-function buildRetailFields(
-  input: SubmitConnectionRequestInput,
-  locationFields: Record<string, unknown>
-): Record<string, unknown> {
-  const dnsp = String(locationFields.dnsp || "").toLowerCase();
-  const profile = String(locationFields.network_tariff_profile || "").toLowerCase();
-  const isEnergex = dnsp === "energex" || profile === "energex_ntc6900";
-  if (!isEnergex) return {};
-
+function buildRetailFields(input: SubmitConnectionRequestInput): Record<string, unknown> {
   const fields: Record<string, unknown> = {};
+  const planName = input.retailPlanName?.trim();
+  if (planName) fields.retail_plan_id = planName.slice(0, 120);
+
   const peak = centsPerKwhToAud(input.retailPeakCents);
   const shoulder = centsPerKwhToAud(input.retailShoulderCents);
   const offPeak = centsPerKwhToAud(input.retailOffPeakCents);
@@ -179,7 +185,7 @@ function buildPayload(
     status: "pending_review",
     requested_at: new Date().toISOString(),
     ...locationFields,
-    ...buildRetailFields(input, locationFields),
+    ...buildRetailFields(input),
   };
 
   const notes = input.notes?.trim();

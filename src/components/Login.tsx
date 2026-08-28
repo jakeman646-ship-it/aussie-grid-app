@@ -1,13 +1,13 @@
 /**
  * Aussie Grid — Login
  * File: src/components/Login.tsx
- * Version: v0.1.3.2
- * Updated: 28 Aug 2026 — invite-gated Create account; account ≠ connected.
+ * Version: v0.1.3.3
+ * Updated: 29 Aug 2026 — invite-gated signup toggle; account ≠ connected.
  */
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type AuthTab = "signin" | "create";
+type AuthMode = "signin" | "signup";
 
 const INVITE_CODE =
   (import.meta.env.VITE_PILOT_INVITE_CODE as string | undefined)?.trim() || "VOLUNTEER";
@@ -34,7 +34,7 @@ function inviteMatches(entered: string): boolean {
 }
 
 export default function Login() {
-  const [tab, setTab] = useState<AuthTab>("signin");
+  const [mode, setMode] = useState<AuthMode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -48,8 +48,8 @@ export default function Login() {
     setInfo("");
   };
 
-  const switchTab = (next: AuthTab) => {
-    setTab(next);
+  const switchMode = (next: AuthMode) => {
+    setMode(next);
     resetMessages();
     setLoading(false);
   };
@@ -111,8 +111,8 @@ export default function Login() {
 
     // Confirm-email, or existing user (Supabase returns empty identities).
     if (!hasSession || identities.length === 0) {
-      setInfo("Check email, then Sign in");
-      setTab("signin");
+      setInfo("Check your email to confirm, then sign in. You are not in the app yet.");
+      setMode("signin");
       setPassword("");
       setConfirmPassword("");
       setInviteCode("");
@@ -167,7 +167,7 @@ export default function Login() {
           style={{
             display: "flex",
             gap: "8px",
-            marginBottom: "28px",
+            marginBottom: "16px",
             padding: "4px",
             backgroundColor: "#f1f5f9",
             borderRadius: "10px",
@@ -176,8 +176,8 @@ export default function Login() {
           <button
             type="button"
             role="tab"
-            aria-selected={tab === "signin"}
-            onClick={() => switchTab("signin")}
+            aria-selected={mode === "signin"}
+            onClick={() => switchMode("signin")}
             style={{
               flex: 1,
               padding: "10px 12px",
@@ -186,9 +186,9 @@ export default function Login() {
               fontSize: "14px",
               fontWeight: 600,
               cursor: "pointer",
-              backgroundColor: tab === "signin" ? "#fff" : "transparent",
-              color: tab === "signin" ? "#0A2540" : "#64748b",
-              boxShadow: tab === "signin" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+              backgroundColor: mode === "signin" ? "#fff" : "transparent",
+              color: mode === "signin" ? "#0A2540" : "#64748b",
+              boxShadow: mode === "signin" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
             }}
           >
             Sign in
@@ -196,8 +196,8 @@ export default function Login() {
           <button
             type="button"
             role="tab"
-            aria-selected={tab === "create"}
-            onClick={() => switchTab("create")}
+            aria-selected={mode === "signup"}
+            onClick={() => switchMode("signup")}
             style={{
               flex: 1,
               padding: "10px 12px",
@@ -206,16 +206,28 @@ export default function Login() {
               fontSize: "14px",
               fontWeight: 600,
               cursor: "pointer",
-              backgroundColor: tab === "create" ? "#fff" : "transparent",
-              color: tab === "create" ? "#0A2540" : "#64748b",
-              boxShadow: tab === "create" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+              backgroundColor: mode === "signup" ? "#fff" : "transparent",
+              color: mode === "signup" ? "#0A2540" : "#64748b",
+              boxShadow: mode === "signup" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
             }}
           >
             Create account
           </button>
         </div>
 
-        {tab === "signin" ? (
+        <p
+          style={{
+            color: "#64748b",
+            fontSize: "13px",
+            lineHeight: 1.5,
+            margin: "0 0 24px 0",
+            textAlign: "center",
+          }}
+        >
+          Invite-only volunteer access. Monitoring first. You decide.
+        </p>
+
+        {mode === "signin" ? (
           <form onSubmit={handleLogin}>
             <div style={{ marginBottom: "20px" }}>
               <label style={labelStyle}>Email Address</label>
@@ -290,6 +302,30 @@ export default function Login() {
             >
               {loading ? "Signing in..." : "Sign In"}
             </button>
+            <p
+              style={{
+                textAlign: "center",
+                margin: "16px 0 0 0",
+                fontSize: "14px",
+                color: "#64748b",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => switchMode("signup")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "#16a34a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "14px",
+                }}
+              >
+                Create an account
+              </button>
+            </p>
           </form>
         ) : (
           <form onSubmit={handleCreateAccount}>
@@ -379,6 +415,31 @@ export default function Login() {
             >
               {loading ? "Creating account..." : "Create account"}
             </button>
+            <p
+              style={{
+                textAlign: "center",
+                margin: "16px 0 0 0",
+                fontSize: "14px",
+                color: "#64748b",
+              }}
+            >
+              Already have an account?{" "}
+              <button
+                type="button"
+                onClick={() => switchMode("signin")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "#16a34a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "14px",
+                }}
+              >
+                Sign in
+              </button>
+            </p>
           </form>
         )}
 
@@ -392,8 +453,7 @@ export default function Login() {
             lineHeight: 1.5,
           }}
         >
-          Pilot testing only. Connecting the inverter is a separate step we review.
-          Set <code style={{ fontSize: "12px" }}>VITE_PILOT_INVITE_CODE</code> on Vercel.
+          Connecting the inverter is a separate step we review. Signup is not connected.
         </p>
       </div>
     </div>

@@ -1,16 +1,20 @@
 /**
  * Aussie Grid - Profile page
  * File: src/components/Profile.tsx
- * Version: v0.1.2.27
- * Updated: 21 Jul 2026 - Editable What matters most ranker (P0).
+ * Version: v0.1.2.29
+ * Updated: 29 Aug 2026 — owner-editable electricity rates (retail_* snapshot).
  */
 import { useEffect, useState, type FormEvent } from "react";
 import { useImpersonation } from "@/hooks/useImpersonation";
 import { useOutcomeRanks } from "@/hooks/useOutcomeRanks";
 import { usePilotHousehold } from "@/hooks/usePilotHousehold";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
+import {
+  audPerKwhToCentsDisplay,
+  centsPerKwhToAud,
+} from "@/lib/api/submitConnectionRequest";
 import { OUTCOME_LABELS } from "@/lib/outcomeRanks";
-import { supabase } from "@/lib/supabase";
+import { mutationTimeout, supabase } from "@/lib/supabase";
 import type { OutcomeKey } from "@/types/outcomeRanks";
 
 interface ProfileProps {
@@ -52,9 +56,13 @@ export default function Profile({
 }: ProfileProps) {
   const loggedInHouseholdId = getCurrentHouseholdId();
   const { effectiveHouseholdId, isImpersonating } = useImpersonation(loggedInHouseholdId);
-  const { data: household, loading } = usePilotHousehold(effectiveHouseholdId, {
-    isImpersonating,
-  });
+  const { data: household, loading, error: householdError, refetch } = usePilotHousehold(
+    effectiveHouseholdId,
+    {
+      isImpersonating,
+      allowMissing: true,
+    }
+  );
   // Prefer registry household_id once loaded; never write under a mismatched id.
   const ranksHouseholdId = household?.household_id ?? effectiveHouseholdId;
   const outcomeRanks = useOutcomeRanks(ranksHouseholdId, { isImpersonating });
@@ -71,12 +79,45 @@ export default function Profile({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
+  const [retailPlanName, setRetailPlanName] = useState("");
+  const [retailPeakCents, setRetailPeakCents] = useState("");
+  const [retailShoulderCents, setRetailShoulderCents] = useState("");
+  const [retailOffPeakCents, setRetailOffPeakCents] = useState("");
+  const [retailFitCents, setRetailFitCents] = useState("");
+  const [ratesSaving, setRatesSaving] = useState(false);
+  const [ratesError, setRatesError] = useState<string | null>(null);
+  const [ratesSuccess, setRatesSuccess] = useState<string | null>(null);
+
   // Keep draft order in sync when fetched ranks load / change household.
   useEffect(() => {
     if (!outcomeRanks.loading) {
       setDraftOrder(outcomeRanks.orderedKeys);
     }
   }, [outcomeRanks.loading, outcomeRanks.orderedKeys, ranksHouseholdId]);
+
+  // Load stored retail_* into the rates form when the household row is available.
+  useEffect(() => {
+    if (!household) {
+      setRetailPlanName("");
+      setRetailPeakCents("");
+      setRetailShoulderCents("");
+      setRetailOffPeakCents("");
+      setRetailFitCents("");
+      return;
+    }
+    setRetailPlanName(household.retail_plan_id ?? "");
+    setRetailPeakCents(audPerKwhToCentsDisplay(household.retail_peak_rate));
+    setRetailShoulderCents(audPerKwhToCentsDisplay(household.retail_shoulder_rate));
+    setRetailOffPeakCents(audPerKwhToCentsDisplay(household.retail_off_peak_rate));
+    setRetailFitCents(audPerKwhToCentsDisplay(household.retail_fit_rate));
+  }, [
+    household?.household_id,
+    household?.retail_plan_id,
+    household?.retail_peak_rate,
+    household?.retail_shoulder_rate,
+    household?.retail_off_peak_rate,
+    household?.retail_fit_rate,
+  ]);
 
   // Scroll to priorities card when opened via Dashboard "Change priorities".
   useEffect(() => {
@@ -189,6 +230,87 @@ export default function Profile({
     }
   };
 
+  const handleSaveRates = async () => {
+    setRatesError(null);
+    setRatesSuccess(null);
+
+    if (isImpersonating) {
+      setRatesError("View only while impersonating.");
+      return;
+    }
+
+    if (!household?.household_id) {
+      setRatesError("Add rates on Connect Inverter first");
+      return;
+    }
+
+    const planName = retailPlanName.trim();
+    const peak = centsPerKwhToAud(retailPeakCents);
+    const shoulder = centsPerKwhToAud(retailShoulderCents);
+    const offPeak = centsPerKwhToAud(retailOffPeakCents);
+    const fit = centsPerKwhToAud(retailFitCents);
+
+    if (!planName && peak === null && shoulder === null && offPeak === null && fit === null) {
+      setRatesError("Enter a plan name or at least one rate (¢/kWh). Blank fields are left unchanged.");
+      return;
+    }
+
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (planName) patch.retail_plan_id = planName.slice(0, 120);
+    if (peak !== null) patch.retail_peak_rate = peak;
+    if (shoulder !== null) patch.retail_shoulder_rate = shoulder;
+    if (offPeak !== null) patch.retail_off_peak_rate = offPeak;
+    if (fit !== null) patch.retail_fit_rate = fit;
+
+    setRatesSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("pilot_households")
+        .update(patch)
+        .eq("household_id", household.household_id)
+        .select("household_id")
+        .abortSignal(mutationTimeout())
+        .maybeSingle();
+
+      if (error) {
+        const code = "code" in error && error.code ? String(error.code) : "";
+        const details =
+          "details" in error && error.details ? String(error.details) : "";
+        const hint = "hint" in error && error.hint ? String(error.hint) : "";
+        const parts = [
+          error.message || "Save failed",
+          code ? `(${code})` : "",
+          details,
+          hint,
+        ].filter(Boolean);
+        setRatesError(
+          `Could not save rates. ${parts.join(" ")} This is often a permissions (RLS) block — not saved.`
+        );
+        return;
+      }
+
+      if (!data?.household_id) {
+        setRatesError(
+          "Save did not update a household row (missing row or RLS). Not saved."
+        );
+        return;
+      }
+
+      setRatesSuccess(
+        "Rates saved. This is a bill snapshot only — not a priced tariff, not connected, and not control. Dollar estimates stay off until we have a priced tariff for your network."
+      );
+      await refetch();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save rates. Please try again.";
+      setRatesError(message);
+    } finally {
+      setRatesSaving(false);
+    }
+  };
+
   const handleSavePriorities = async () => {
     outcomeRanks.clearSaveFeedback();
     await outcomeRanks.saveOrderedKeys(draftOrder);
@@ -235,6 +357,173 @@ export default function Profile({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Electricity rates — owner-entered bill snapshot (not a priced tariff). */}
+        <div className="rounded-2xl border border-slate-700 bg-white p-6 text-slate-900 shadow-sm mb-6">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Your electricity rates (optional)
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              From your bill, in ¢/kWh. Monitoring works without this. Saving rates is not a
+              priced tariff, not connected, and not control. Dollar estimates stay off until we
+              have a priced tariff for your network.
+            </p>
+            {isImpersonating && (
+              <p className="mt-2 text-sm text-amber-700">View only while impersonating</p>
+            )}
+          </div>
+
+          {loading ? (
+            <p className="text-sm text-slate-500">Loading rates...</p>
+          ) : householdError ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+              Could not load household: {householdError.message}
+            </div>
+          ) : !household ? (
+            <p className="text-sm text-slate-600">
+              Add rates on Connect Inverter first
+            </p>
+          ) : (
+            <>
+              <div className="space-y-4">
+                <div>
+                  <label
+                    htmlFor="retail-plan-name"
+                    className="mb-1.5 block text-sm font-semibold text-slate-600"
+                  >
+                    Plan name{" "}
+                    <span className="font-normal text-slate-400">(optional)</span>
+                  </label>
+                  <input
+                    id="retail-plan-name"
+                    type="text"
+                    value={retailPlanName}
+                    onChange={(event) => setRetailPlanName(event.target.value.slice(0, 120))}
+                    disabled={isImpersonating || ratesSaving || signingOut}
+                    className={INPUT_CLASS}
+                    placeholder="e.g. Origin TOU"
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="retail-peak"
+                      className="mb-1.5 block text-sm font-semibold text-slate-600"
+                    >
+                      Peak ¢/kWh
+                    </label>
+                    <input
+                      id="retail-peak"
+                      type="text"
+                      inputMode="decimal"
+                      value={retailPeakCents}
+                      onChange={(event) =>
+                        setRetailPeakCents(event.target.value.replace(/[^\d.]/g, ""))
+                      }
+                      disabled={isImpersonating || ratesSaving || signingOut}
+                      className={INPUT_CLASS}
+                      placeholder="e.g. 34"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="retail-shoulder"
+                      className="mb-1.5 block text-sm font-semibold text-slate-600"
+                    >
+                      Shoulder ¢/kWh{" "}
+                      <span className="font-normal text-slate-400">(if on bill)</span>
+                    </label>
+                    <input
+                      id="retail-shoulder"
+                      type="text"
+                      inputMode="decimal"
+                      value={retailShoulderCents}
+                      onChange={(event) =>
+                        setRetailShoulderCents(event.target.value.replace(/[^\d.]/g, ""))
+                      }
+                      disabled={isImpersonating || ratesSaving || signingOut}
+                      className={INPUT_CLASS}
+                      placeholder="optional"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="retail-offpeak"
+                      className="mb-1.5 block text-sm font-semibold text-slate-600"
+                    >
+                      Off-peak ¢/kWh
+                    </label>
+                    <input
+                      id="retail-offpeak"
+                      type="text"
+                      inputMode="decimal"
+                      value={retailOffPeakCents}
+                      onChange={(event) =>
+                        setRetailOffPeakCents(event.target.value.replace(/[^\d.]/g, ""))
+                      }
+                      disabled={isImpersonating || ratesSaving || signingOut}
+                      className={INPUT_CLASS}
+                      placeholder="e.g. 22"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="retail-fit"
+                      className="mb-1.5 block text-sm font-semibold text-slate-600"
+                    >
+                      Solar feed-in ¢/kWh
+                    </label>
+                    <input
+                      id="retail-fit"
+                      type="text"
+                      inputMode="decimal"
+                      value={retailFitCents}
+                      onChange={(event) =>
+                        setRetailFitCents(event.target.value.replace(/[^\d.]/g, ""))
+                      }
+                      disabled={isImpersonating || ratesSaving || signingOut}
+                      className={INPUT_CLASS}
+                      placeholder="e.g. 8"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {ratesError && (
+                <div
+                  role="alert"
+                  className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                >
+                  {ratesError}
+                </div>
+              )}
+
+              {ratesSuccess && (
+                <div
+                  role="status"
+                  className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+                >
+                  {ratesSuccess}
+                </div>
+              )}
+
+              {!isImpersonating && (
+                <button
+                  type="button"
+                  onClick={handleSaveRates}
+                  disabled={ratesSaving || signingOut}
+                  className="mt-5 w-full rounded-xl bg-emerald-600 px-6 py-3.5 text-center text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {ratesSaving ? "Saving…" : "Save rates"}
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         {/* What matters most - user-ranked outcomes (P0 suggest-only) */}
