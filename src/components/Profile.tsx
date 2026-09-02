@@ -1,8 +1,8 @@
 /**
  * Aussie Grid - Profile page
  * File: src/components/Profile.tsx
- * Version: v0.1.3.0
- * Updated: 2 Sep 2026 — Sungrow Renew (owner mint); not a Connected control.
+ * Version: v0.1.3.1
+ * Updated: 3 Sep 2026 — admin impersonate Renew without waiting on household row.
  */
 import { useEffect, useState, type FormEvent } from "react";
 import { isHouseholdReadingFresh } from "@/components/energySystem";
@@ -66,6 +66,17 @@ function isSungrowHousehold(opts: {
   return make.includes("sungrow") || Boolean(opts.sungrowPlantId?.trim());
 }
 
+function isBlockedOemForSungrowRenew(inverterMake?: string | null): boolean {
+  const make = (inverterMake || "").toLowerCase();
+  return make.includes("tesla") || make.includes("sigenergy") || make.includes("sigen");
+}
+
+/** URL ?impersonate= only — not a household insert, not RLS proof. */
+function readImpersonateHouseholdId(): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get("impersonate")?.trim() || "";
+}
+
 export default function Profile({
   onBack,
   onSignOut,
@@ -109,6 +120,7 @@ export default function Profile({
   const [ratesSuccess, setRatesSuccess] = useState<string | null>(null);
 
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminReady, setAdminReady] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
   const [renewBusy, setRenewBusy] = useState(false);
   const [renewError, setRenewError] = useState<string | null>(null);
@@ -148,21 +160,29 @@ export default function Profile({
 
   useEffect(() => {
     let cancelled = false;
-    isAdminUser().then((ok) => {
-      if (!cancelled) setIsAdmin(ok);
-    });
+    isAdminUser()
+      .then((ok) => {
+        if (cancelled) return;
+        setIsAdmin(ok);
+      })
+      .finally(() => {
+        if (!cancelled) setAdminReady(true);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
   useEffect(() => {
-    setRenewClickedAt(readSungrowRenewClickedAt(ranksHouseholdId));
-  }, [ranksHouseholdId]);
+    const impersonateId = readImpersonateHouseholdId();
+    const hid = (isAdmin && impersonateId ? impersonateId : ranksHouseholdId).trim();
+    setRenewClickedAt(readSungrowRenewClickedAt(hid));
+  }, [ranksHouseholdId, isAdmin]);
 
   // connection_status is optional on the FE select — fail-open if RLS/schema blocks it.
   useEffect(() => {
-    const hid = (household?.household_id || "").trim();
+    const impersonateId = readImpersonateHouseholdId();
+    const hid = (household?.household_id || (isAdmin ? impersonateId : "")).trim();
     if (!hid) {
       setConnectionStatus(null);
       return;
@@ -189,7 +209,7 @@ export default function Profile({
     return () => {
       cancelled = true;
     };
-  }, [household?.household_id]);
+  }, [household?.household_id, isAdmin]);
 
   // Scroll to priorities card when opened via Dashboard "Change priorities".
   useEffect(() => {
@@ -384,11 +404,16 @@ export default function Profile({
   };
 
   const mintSungrowRenew = async (): Promise<string> => {
-    const hid = (household?.household_id || ranksHouseholdId || "").trim();
+    const impersonateId = readImpersonateHouseholdId();
+    const hid = (
+      isAdmin && impersonateId
+        ? impersonateId
+        : household?.household_id || (!impersonateId ? loggedInHouseholdId : "")
+    ).trim();
     if (!hid) {
       throw new Error("Connect your inverter first");
     }
-    if (isImpersonating && !isAdmin) {
+    if (impersonateId && !isAdmin) {
       throw new Error("View only while impersonating");
     }
     const result = await requestSungrowRenewLink(hid);
@@ -442,20 +467,30 @@ export default function Profile({
     draftOrder.length === outcomeRanks.orderedKeys.length &&
     draftOrder.some((key, i) => key !== outcomeRanks.orderedKeys[i]);
 
+  const impersonateHouseholdId = readImpersonateHouseholdId();
+  const adminMintHouseholdId =
+    adminReady && isAdmin && impersonateHouseholdId ? impersonateHouseholdId : "";
+  const mintHouseholdId = (
+    adminMintHouseholdId ||
+    household?.household_id ||
+    (!impersonateHouseholdId ? loggedInHouseholdId : "")
+  ).trim();
+  const blockedOem = isBlockedOemForSungrowRenew(household?.inverter_make);
   const sungrowHome = isSungrowHousehold({
     inverterMake: household?.inverter_make,
     sungrowPlantId: household?.sungrow_plant_id,
   });
+  const showAdminRenewCard = Boolean(adminMintHouseholdId) && !blockedOem;
   const readingFresh = isHouseholdReadingFresh(lastReadingAt);
   const readingNewerThanRenewClick =
     !renewClickedAt ||
     (Boolean(lastReadingAt) && Date.parse(lastReadingAt as string) > renewClickedAt);
   const needsRenew =
-    sungrowHome &&
-    (connectionStatus === "reauth_required" || !readingFresh || !readingNewerThanRenewClick);
-  const canMintRenew = Boolean(
-    sungrowHome && household?.household_id && (!isImpersonating || isAdmin)
-  );
+    showAdminRenewCard ||
+    (sungrowHome &&
+      (connectionStatus === "reauth_required" || !readingFresh || !readingNewerThanRenewClick));
+  const canMintRenew = Boolean(mintHouseholdId && (showAdminRenewCard || (!impersonateHouseholdId && sungrowHome)));
+  const showRenewCard = showAdminRenewCard || sungrowHome;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -769,14 +804,19 @@ export default function Profile({
           )}
         </div>
 
-        {/* Sungrow Connection Status — Renew is not a Connected control */}
-        {sungrowHome && (
+        {/* Sungrow Renew — admin impersonate uses URL household_id even if the row failed to load */}
+        {showRenewCard && (
         <div className="rounded-2xl border border-slate-700 bg-white p-6 text-slate-900 shadow-sm mb-6">
           <div className="mb-3">
             <div className="text-sm font-semibold text-slate-600 mb-1">Sungrow Inverter</div>
-            {loading || readingLoading ? (
+            {showAdminRenewCard && (
+              <p className="mb-2 font-mono text-xs text-slate-500">
+                household_id {mintHouseholdId}
+              </p>
+            )}
+            {!showAdminRenewCard && (loading || readingLoading) ? (
               <div className="text-sm text-slate-500">Checking connection...</div>
-            ) : readingFresh && readingNewerThanRenewClick && connectionStatus !== "reauth_required" ? (
+            ) : readingFresh && readingNewerThanRenewClick && connectionStatus !== "reauth_required" && !showAdminRenewCard ? (
               <div>
                 <span className="inline-flex items-center gap-2 text-emerald-600 font-medium">
                   <span className="h-2 w-2 rounded-full bg-emerald-500" /> Monitoring · read-only
@@ -812,13 +852,10 @@ export default function Profile({
             <div className="mt-4 border-t border-slate-200 pt-4">
               <h3 className="text-base font-semibold text-slate-900">Renew connection</h3>
               <p className="mt-1 text-sm text-slate-600">
-                Opens iSolarCloud for 30 minutes. Use an iSolarCloud login that is only this house.
+                30m ticket. Owner must be logged into THIS house’s iSolarCloud. An already-linked
+                grant will bounce — don’t retry that login.
               </p>
-              <p className="mt-1 text-sm text-slate-600">
-                If you see “already linked to another household”, this login is already used — don’t
-                retry it.
-              </p>
-              {isImpersonating && isAdmin && (
+              {showAdminRenewCard && (
                 <p className="mt-2 text-sm text-amber-700">admin mint</p>
               )}
               {isImpersonating && !isAdmin && (
@@ -858,7 +895,7 @@ export default function Profile({
             </div>
           )}
 
-          {!household?.household_id && onConnectInverter && (
+          {!showAdminRenewCard && !household?.household_id && onConnectInverter && (
             <button
               onClick={onConnectInverter}
               className="mt-4 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700 transition"
