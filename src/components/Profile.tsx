@@ -1,13 +1,21 @@
 /**
  * Aussie Grid - Profile page
  * File: src/components/Profile.tsx
- * Version: v0.1.2.29
- * Updated: 29 Aug 2026 — owner-editable electricity rates (retail_* snapshot).
+ * Version: v0.1.3.0
+ * Updated: 2 Sep 2026 — Sungrow Renew (owner mint); not a Connected control.
  */
 import { useEffect, useState, type FormEvent } from "react";
+import { isHouseholdReadingFresh } from "@/components/energySystem";
 import { useImpersonation } from "@/hooks/useImpersonation";
+import { useLatestReadingAt } from "@/hooks/useLatestReadingAt";
 import { useOutcomeRanks } from "@/hooks/useOutcomeRanks";
 import { usePilotHousehold } from "@/hooks/usePilotHousehold";
+import { isAdminUser } from "@/lib/adminAccess";
+import {
+  markSungrowRenewClicked,
+  readSungrowRenewClickedAt,
+  requestSungrowRenewLink,
+} from "@/lib/api/requestSungrowRenewLink";
 import { getCurrentHouseholdId } from "@/lib/currentHousehold";
 import {
   audPerKwhToCentsDisplay,
@@ -47,6 +55,17 @@ function moveKey(order: OutcomeKey[], index: number, direction: -1 | 1): Outcome
   return next;
 }
 
+function isSungrowHousehold(opts: {
+  inverterMake?: string | null;
+  sungrowPlantId?: string | null;
+}): boolean {
+  const make = (opts.inverterMake || "").toLowerCase();
+  if (make.includes("tesla") || make.includes("sigenergy") || make.includes("sigen")) {
+    return false;
+  }
+  return make.includes("sungrow") || Boolean(opts.sungrowPlantId?.trim());
+}
+
 export default function Profile({
   onBack,
   onSignOut,
@@ -66,6 +85,7 @@ export default function Profile({
   // Prefer registry household_id once loaded; never write under a mismatched id.
   const ranksHouseholdId = household?.household_id ?? effectiveHouseholdId;
   const outcomeRanks = useOutcomeRanks(ranksHouseholdId, { isImpersonating });
+  const { lastReadingAt, loading: readingLoading } = useLatestReadingAt(ranksHouseholdId);
 
   const [draftOrder, setDraftOrder] = useState<OutcomeKey[]>(outcomeRanks.orderedKeys);
   const [authEmail, setAuthEmail] = useState<string | null>(null);
@@ -87,6 +107,13 @@ export default function Profile({
   const [ratesSaving, setRatesSaving] = useState(false);
   const [ratesError, setRatesError] = useState<string | null>(null);
   const [ratesSuccess, setRatesSuccess] = useState<string | null>(null);
+
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
+  const [renewBusy, setRenewBusy] = useState(false);
+  const [renewError, setRenewError] = useState<string | null>(null);
+  const [renewCopied, setRenewCopied] = useState(false);
+  const [renewClickedAt, setRenewClickedAt] = useState<number | null>(null);
 
   // Keep draft order in sync when fetched ranks load / change household.
   useEffect(() => {
@@ -118,6 +145,51 @@ export default function Profile({
     household?.retail_off_peak_rate,
     household?.retail_fit_rate,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    isAdminUser().then((ok) => {
+      if (!cancelled) setIsAdmin(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setRenewClickedAt(readSungrowRenewClickedAt(ranksHouseholdId));
+  }, [ranksHouseholdId]);
+
+  // connection_status is optional on the FE select — fail-open if RLS/schema blocks it.
+  useEffect(() => {
+    const hid = (household?.household_id || "").trim();
+    if (!hid) {
+      setConnectionStatus(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("pilot_households")
+          .select("connection_status")
+          .eq("household_id", hid)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) {
+          setConnectionStatus(null);
+          return;
+        }
+        const raw = (data as { connection_status?: string | null } | null)?.connection_status;
+        setConnectionStatus(typeof raw === "string" && raw.trim() ? raw.trim() : null);
+      } catch {
+        if (!cancelled) setConnectionStatus(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [household?.household_id]);
 
   // Scroll to priorities card when opened via Dashboard "Change priorities".
   useEffect(() => {
@@ -311,6 +383,50 @@ export default function Profile({
     }
   };
 
+  const mintSungrowRenew = async (): Promise<string> => {
+    const hid = (household?.household_id || ranksHouseholdId || "").trim();
+    if (!hid) {
+      throw new Error("Connect your inverter first");
+    }
+    if (isImpersonating && !isAdmin) {
+      throw new Error("View only while impersonating");
+    }
+    const result = await requestSungrowRenewLink(hid);
+    const clicked = Date.now();
+    markSungrowRenewClicked(hid, clicked);
+    setRenewClickedAt(clicked);
+    return result.authorizeUrl;
+  };
+
+  const handleRenewOpen = async () => {
+    setRenewError(null);
+    setRenewCopied(false);
+    setRenewBusy(true);
+    try {
+      const url = await mintSungrowRenew();
+      window.location.assign(url);
+    } catch (err) {
+      setRenewError(err instanceof Error ? err.message : "Could not create a Renew link");
+    } finally {
+      setRenewBusy(false);
+    }
+  };
+
+  const handleRenewCopy = async () => {
+    setRenewError(null);
+    setRenewCopied(false);
+    setRenewBusy(true);
+    try {
+      const url = await mintSungrowRenew();
+      await navigator.clipboard.writeText(url);
+      setRenewCopied(true);
+    } catch (err) {
+      setRenewError(err instanceof Error ? err.message : "Could not copy Renew link");
+    } finally {
+      setRenewBusy(false);
+    }
+  };
+
   const handleSavePriorities = async () => {
     outcomeRanks.clearSaveFeedback();
     await outcomeRanks.saveOrderedKeys(draftOrder);
@@ -325,6 +441,21 @@ export default function Profile({
   const prioritiesDirty =
     draftOrder.length === outcomeRanks.orderedKeys.length &&
     draftOrder.some((key, i) => key !== outcomeRanks.orderedKeys[i]);
+
+  const sungrowHome = isSungrowHousehold({
+    inverterMake: household?.inverter_make,
+    sungrowPlantId: household?.sungrow_plant_id,
+  });
+  const readingFresh = isHouseholdReadingFresh(lastReadingAt);
+  const readingNewerThanRenewClick =
+    !renewClickedAt ||
+    (Boolean(lastReadingAt) && Date.parse(lastReadingAt as string) > renewClickedAt);
+  const needsRenew =
+    sungrowHome &&
+    (connectionStatus === "reauth_required" || !readingFresh || !readingNewerThanRenewClick);
+  const canMintRenew = Boolean(
+    sungrowHome && household?.household_id && (!isImpersonating || isAdmin)
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -638,37 +769,122 @@ export default function Profile({
           )}
         </div>
 
-        {/* Sungrow Connection Status */}
+        {/* Sungrow Connection Status — Renew is not a Connected control */}
+        {sungrowHome && (
         <div className="rounded-2xl border border-slate-700 bg-white p-6 text-slate-900 shadow-sm mb-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-sm font-semibold text-slate-600 mb-1">Sungrow Inverter</div>
-              {loading ? (
-                <div className="text-sm text-slate-500">Checking connection...</div>
-              ) : household?.sungrow_connected_at ? (
-                <div>
-                  <span className="inline-flex items-center gap-2 text-emerald-600 font-medium">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> Connected
-                  </span>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    since {new Date(household.sungrow_connected_at).toLocaleDateString()}
-                  </div>
+          <div className="mb-3">
+            <div className="text-sm font-semibold text-slate-600 mb-1">Sungrow Inverter</div>
+            {loading || readingLoading ? (
+              <div className="text-sm text-slate-500">Checking connection...</div>
+            ) : readingFresh && readingNewerThanRenewClick && connectionStatus !== "reauth_required" ? (
+              <div>
+                <span className="inline-flex items-center gap-2 text-emerald-600 font-medium">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> Monitoring · read-only
+                </span>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Last reading{" "}
+                  {lastReadingAt
+                    ? new Date(lastReadingAt).toLocaleString(undefined, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })
+                    : "—"}
                 </div>
-              ) : (
-                <span className="text-amber-600 font-medium">Not connected yet</span>
+              </div>
+            ) : (
+              <div>
+                <span className="text-amber-600 font-medium">
+                  {renewClickedAt && !readingNewerThanRenewClick
+                    ? "Waiting for a new reading after Renew"
+                    : connectionStatus === "reauth_required"
+                      ? "Re-authorisation required"
+                      : "Waiting on a successful data pull"}
+                </span>
+                <p className="text-xs text-slate-500 mt-1">
+                  Status turns green only after a household reading newer than Renew
+                  (about the last 2 hours).
+                </p>
+              </div>
+            )}
+          </div>
+
+          {needsRenew && (
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <h3 className="text-base font-semibold text-slate-900">Renew connection</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Opens iSolarCloud for 30 minutes. Use an iSolarCloud login that is only this house.
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                If you see “already linked to another household”, this login is already used — don’t
+                retry it.
+              </p>
+              {isImpersonating && isAdmin && (
+                <p className="mt-2 text-sm text-amber-700">admin mint</p>
+              )}
+              {isImpersonating && !isAdmin && (
+                <p className="mt-2 text-sm text-amber-700">View only while impersonating</p>
+              )}
+              {renewError && (
+                <div
+                  role="alert"
+                  className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                >
+                  {renewError}
+                </div>
+              )}
+              {renewCopied && (
+                <p className="mt-3 text-sm text-emerald-700">Link copied. It expires in 30 minutes.</p>
+              )}
+              {canMintRenew && (
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={handleRenewOpen}
+                    disabled={renewBusy || signingOut}
+                    className="w-full rounded-xl bg-emerald-600 px-6 py-3.5 text-center text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700 transition disabled:cursor-not-allowed disabled:opacity-60 sm:flex-1"
+                  >
+                    {renewBusy ? "Creating link…" : "Open iSolarCloud"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRenewCopy}
+                    disabled={renewBusy || signingOut}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50 transition disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[8rem]"
+                  >
+                    Copy link
+                  </button>
+                </div>
               )}
             </div>
+          )}
 
-            {!household?.sungrow_connected_at && onConnectInverter && (
+          {!household?.household_id && onConnectInverter && (
+            <button
+              onClick={onConnectInverter}
+              className="mt-4 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700 transition"
+            >
+              Connect Sungrow
+            </button>
+          )}
+        </div>
+        )}
+
+        {!sungrowHome && !loading && !household && onConnectInverter && (
+          <div className="rounded-2xl border border-slate-700 bg-white p-6 text-slate-900 shadow-sm mb-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold text-slate-600 mb-1">Inverter</div>
+                <span className="text-amber-600 font-medium">Not connected yet</span>
+              </div>
               <button
                 onClick={onConnectInverter}
                 className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700 transition"
               >
-                Connect Sungrow
+                Connect inverter
               </button>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Change Password — only for email/password sign-in (not OAuth-only accounts). */}
         {!authChecking && canChangePassword && (
