@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Hooks
  * File: src/hooks/useHouseholdSnapshot.ts
- * Version: v0.1.2.29
- * Updated: 28 Aug 2026 — skip attaching Ergon $ when household is unpriced (NSW volunteer).
+ * Version: v0.1.2.30
+ * Updated: 11 Oct 2026 — missing grid / SOC stay null; yesterday battery + export $ for the hint.
  */
 import { useState, useEffect } from "react";
 import { supabase, queryTimeout } from "@/lib/supabase";
@@ -12,11 +12,15 @@ export interface HouseholdSnapshot {
   household_id: string;
   mode: string;
   reason: string;
-  battery_soc: number;
+  /** Null when the latest reading has no SOC. */
+  battery_soc: number | null;
   solar_kw: number;
-  grid_kw: number;
+  /** Null when the latest reading has no grid figure — never coerce to 0. */
+  grid_kw: number | null;
   consumption_kw: number;
   yesterday_savings_aud: number | null;
+  yesterday_battery_discharge_aud: number | null;
+  yesterday_export_aud: number | null;
   cumulative_savings_aud: number | null;
   last_updated: string;
   data_source: string;
@@ -82,17 +86,35 @@ function buildEmptySnapshot(householdId: string): HouseholdSnapshot {
     household_id: householdId,
     mode: "self_consume",
     reason: "Preparing your first readings — suggestions appear once live data arrives",
-    battery_soc: 0,
+    battery_soc: null,
     solar_kw: 0,
-    grid_kw: 0,
+    grid_kw: null,
     consumption_kw: 0,
     yesterday_savings_aud: null,
+    yesterday_battery_discharge_aud: null,
+    yesterday_export_aud: null,
     cumulative_savings_aud: null,
     last_updated: new Date().toISOString(),
     data_source: "no_data",
     days_of_data: 0,
     data_quality_note: "No live readings yet — your dashboard will fill in after the first successful data pull",
   };
+}
+
+const SAVINGS_COLUMNS = "savings_date, savings_aud, battery_discharge_aud, export_aud";
+const SAVINGS_CORE_COLUMNS = "savings_date, savings_aud";
+
+type SavingsLogRow = {
+  savings_date: string;
+  savings_aud: number | null;
+  battery_discharge_aud?: number | null;
+  export_aud?: number | null;
+};
+
+function optionalNumber(value: unknown): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 export function useHouseholdSnapshot(
@@ -111,7 +133,16 @@ export function useHouseholdSnapshot(
     try {
       const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
-      const [readingsResult, savingsLogResult] = await Promise.all([
+      const fetchSavingsLog = (columns: string) =>
+        supabase
+          .from("daily_savings")
+          .select(columns)
+          .eq("household_id", householdId)
+          .gte("savings_date", since.split("T")[0])
+          .order("savings_date", { ascending: false })
+          .abortSignal(queryTimeout());
+
+      const [readingsResult, firstSavingsResult] = await Promise.all([
         supabase
           .from("household_readings")
           .select(
@@ -121,16 +152,15 @@ export function useHouseholdSnapshot(
           .gte("timestamp", since)
           .order("timestamp", { ascending: true })
           .abortSignal(queryTimeout()),
-        supabase
-          .from("daily_savings")
-          .select("savings_date, savings_aud")
-          .eq("household_id", householdId)
-          .gte("savings_date", since.split("T")[0])
-          .order("savings_date", { ascending: false })
-          .abortSignal(queryTimeout()),
+        fetchSavingsLog(SAVINGS_COLUMNS),
       ]);
 
       if (readingsResult.error) throw readingsResult.error;
+
+      // Older grants may not expose battery/export $ — fall back so the $ figure still loads.
+      const savingsLogResult = firstSavingsResult.error
+        ? await fetchSavingsLog(SAVINGS_CORE_COLUMNS)
+        : firstSavingsResult;
 
       if (isImpersonating && savingsLogResult.error) {
         const savErr = savingsLogResult.error;
@@ -140,7 +170,9 @@ export function useHouseholdSnapshot(
       }
 
       const readingsData = readingsResult.data ?? [];
-      const savingsRows = savingsLogResult.error ? [] : (savingsLogResult.data ?? []);
+      const savingsRows = savingsLogResult.error
+        ? []
+        : ((savingsLogResult.data ?? []) as unknown as SavingsLogRow[]);
       const yesterdayKey = getYesterdayBrisbaneDate();
 
       const loggedYesterday = savingsRows.find((r) => r.savings_date === yesterdayKey);
@@ -177,12 +209,16 @@ export function useHouseholdSnapshot(
         reason: hasLiveReadings
           ? "Real data • Live readings from your system"
           : "Preparing your first readings — suggestions appear once live data arrives",
-        battery_soc: socRaw != null ? Number(socRaw) : 0,
+        battery_soc: optionalNumber(socRaw),
         solar_kw: latestRow?.solar_kw != null ? Number(latestRow.solar_kw) : 0,
-        grid_kw: latestRow?.grid_kw != null ? Number(latestRow.grid_kw) : 0,
+        grid_kw: optionalNumber(latestRow?.grid_kw),
         consumption_kw:
           latestRow?.consumption_kw != null ? Number(latestRow.consumption_kw) : 0,
         yesterday_savings_aud: yesterdaySavings,
+        yesterday_battery_discharge_aud:
+          yesterdaySavings != null ? optionalNumber(loggedYesterday?.battery_discharge_aud) : null,
+        yesterday_export_aud:
+          yesterdaySavings != null ? optionalNumber(loggedYesterday?.export_aud) : null,
         cumulative_savings_aud: cumulativeSavings,
         last_updated: latestRow?.timestamp ?? new Date().toISOString(),
         data_source: hasLiveReadings ? "supabase" : "no_data",
@@ -191,7 +227,7 @@ export function useHouseholdSnapshot(
           ? !dollarsPriced
             ? "Live readings available — monitoring only (tariff not priced)"
             : loggedYesterday
-              ? `Estimated bill impact from daily_savings log • Ergon 12D`
+              ? `Estimated from the daily savings log • Ergon 12D — not a retailer bill`
               : `Live readings available — estimated $ appears after the daily savings run`
           : "No live readings yet — your dashboard will fill in after the first successful data pull",
       };

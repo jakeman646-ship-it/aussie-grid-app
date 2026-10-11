@@ -7,7 +7,7 @@
 
 /** Shown in Dashboard when impersonating a household that has no registry row or readings yet. */
 export const IMPERSONATION_NO_DATA_MESSAGE =
-  "You're connected — we're preparing this home's dashboard. Live solar, battery, and grid readings will appear here once the first data arrives. Nothing is wrong.";
+  "This home is linked — we're preparing its dashboard. Live solar, battery, and grid readings will appear here once the first data arrives. Nothing is wrong.";
 
 /** Shown when the household record loaded but live readings/decisions are still missing. */
 export const IMPERSONATION_PARTIAL_DATA_MESSAGE =
@@ -15,7 +15,7 @@ export const IMPERSONATION_PARTIAL_DATA_MESSAGE =
 
 /** Household-facing banner when connected (or linked) but live telemetry is not ready yet. */
 export const AWAITING_LIVE_DATA_MESSAGE =
-  "You're connected and we're preparing your dashboard. Live readings and daily energy suggestions will appear here soon — this can take a little while after a new connection. Everything stays read-only until you choose to activate agent control.";
+  "Your system is linked and we're preparing your dashboard. Live readings and daily energy suggestions will appear here soon — this can take a little while after a new connection. Everything stays read-only; saving an agent control preference does not turn on automatic control.";
 
 /** Supabase .single() / .maybeSingle() returns this when no row matches. */
 export function isSupabaseNoRowsError(err: unknown): boolean {

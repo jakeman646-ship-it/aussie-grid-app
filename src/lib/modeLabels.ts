@@ -13,7 +13,11 @@ export function formatModeHeadline(mode: string): string {
   return formatModeLabel(mode);
 }
 
-export function formatGridFlow(kw: number): string {
+export const GRID_NOT_ON_FEED = "— not on this feed";
+
+/** Missing grid_kw is unknown, never "Balanced". */
+export function formatGridFlow(kw: number | null | undefined): string {
+  if (kw == null || !Number.isFinite(kw)) return GRID_NOT_ON_FEED;
   if (kw > 0) return `Importing ${kw.toFixed(1)} kW`;
   if (kw < 0) return `Exporting ${Math.abs(kw).toFixed(1)} kW`;
   return "Balanced";

@@ -8,6 +8,7 @@ import { usePilotHousehold } from "@/hooks";
 // Shared client: a second module-scope createClient() here threw at chunk
 // evaluation when env vars were absent, freezing every lazy view load.
 import { supabase } from "@/lib/supabase";
+import { ownerHouseholdLabel } from "@/lib/ownerHonesty";
 
 const DEFAULT_USER_ID = "sungrow-test-001";
 
@@ -202,7 +203,7 @@ export function ConnectSungrow({
         </p>
         {household && (
           <p className="mt-1 text-sm text-slate-300">
-            Household: {household.household_id}
+            Household: {ownerHouseholdLabel(household.household_id) ?? "your household"}
             {household.is_test ? " · test household" : ""}
           </p>
         )}

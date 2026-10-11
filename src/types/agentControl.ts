@@ -5,7 +5,7 @@
 export type AgentControlMode = "read_only" | "agent_control";
 
 export function agentControlLabel(mode: AgentControlMode): string {
-  return mode === "agent_control" ? "Agent control active" : "Read-only mode";
+  return mode === "agent_control" ? "Agent control preference saved" : "Read-only mode";
 }
 
 export function isAgentControlActive(mode: AgentControlMode | undefined | null): boolean {

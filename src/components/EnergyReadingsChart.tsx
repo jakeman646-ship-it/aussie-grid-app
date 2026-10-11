@@ -50,10 +50,15 @@ function CustomTooltip({ active, payload, label }: any) {
           let label = entry.name;
           
           if (entry.dataKey === 'grid_kw') {
-            label = value >= 0 ? 'Grid import' : 'Grid export';
+            label = value == null ? 'Grid (not on this feed)' : value >= 0 ? 'Grid import' : 'Grid export';
           }
           if (entry.dataKey === 'battery_power_kw') {
-            label = value >= 0 ? 'Battery charging' : 'Battery discharging';
+            label =
+              value == null
+                ? 'Battery power (not on this feed)'
+                : value >= 0
+                  ? 'Battery charging'
+                  : 'Battery discharging';
           }
 
           return (
@@ -104,8 +109,9 @@ export function EnergyReadingsChart({ readings }: EnergyReadingsChartProps) {
     timestamp: r.timestamp,
     solar_kw: r.solar_kw ?? 0,
     consumption_kw: r.consumption_kw ?? 0,
-    grid_kw: r.grid_kw ?? 0,
-    battery_power_kw: r.battery_power_kw ?? 0,
+    // Missing feeds stay null so the line gaps instead of drawing a false 0.
+    grid_kw: r.grid_kw ?? null,
+    battery_power_kw: r.battery_power_kw ?? null,
   }));
 
   const lastReading = chartData[chartData.length - 1];

@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Dashboard
  * File: src/components/Dashboard.tsx
- * Version: v0.1.2.42
- * Updated: 28 Aug 2026 — hide Ergon $ when household is unpriced (NSW volunteer).
+ * Version: v0.1.2.43
+ * Updated: 11 Oct 2026 — missing grid/SOC show unknown; $ hint matches weekly report; 2h Live badge.
  */
 import { Component, Suspense, type ReactNode } from "react";
 import { lazyWithReload } from "@/lib/lazyRetry";
@@ -58,11 +58,18 @@ import {
   formatTimestamp,
 } from "@/lib/modeLabels";
 import { isHouseholdPricedForDollars } from "@/lib/dnspLookup";
+import {
+  ESTIMATED_DOLLAR_SENTENCE,
+  buildSavingsHint,
+  liveBadgeState,
+  ownerHouseholdLabel,
+} from "@/lib/ownerHonesty";
+import { formatSocPct } from "@/components/energySystem/statusPresentation";
 import { formatAppVersion } from "@/lib/version";
 import type { AgentDecision } from "@/types/agentDecision";
 import type { Mode } from "@/types/mode";
 import { pilotPhaseLabel } from "@/types/pilotConfig";
-import { type AgentControlMode, isAgentControlActive } from "@/types/agentControl";
+import { type AgentControlMode, agentControlLabel, isAgentControlActive } from "@/types/agentControl";
 import { AgentControlBanner } from "@/components/AgentControlBanner";
 import {
   ConnectionHealthSummary,
@@ -449,25 +456,23 @@ function PreparingLiveDataPanel() {
 
 function classifyInformationalMode(snapshot: {
   solar_kw: number;
-  grid_kw: number;
-  battery_soc: number;
+  grid_kw: number | null;
+  battery_soc: number | null;
 }): { label: string; sub: string } {
   const solar = Number(snapshot.solar_kw);
-  const grid = Number(snapshot.grid_kw);
-  const soc = Number(snapshot.battery_soc);
   const solarKw = Number.isFinite(solar) ? solar : 0;
-  const gridKw = Number.isFinite(grid) ? grid : 0;
-  const batterySoc = Number.isFinite(soc) ? soc : 0;
+  const gridKw = snapshot.grid_kw;
+  const batterySoc = snapshot.battery_soc;
 
   // solar ≈ 0 / null and importing from grid
-  if (Math.abs(solarKw) < 0.05 && gridKw > 0) {
+  if (Math.abs(solarKw) < 0.05 && gridKw != null && gridKw > 0) {
     return {
       label: "Self-Consume",
       sub: "Night / low solar — use battery before grid if you choose. Informational only.",
     };
   }
   // surplus + high SOC
-  if (solarKw >= 1.0 && batterySoc >= 80) {
+  if (solarKw >= 1.0 && batterySoc != null && batterySoc >= 80) {
     return {
       label: "Export-ready",
       sub: "Surplus available if you choose. Informational only.",
@@ -484,8 +489,8 @@ function PreparingDecisionsPanel({
 }: {
   liveSnapshot?: {
     solar_kw: number;
-    grid_kw: number;
-    battery_soc: number;
+    grid_kw: number | null;
+    battery_soc: number | null;
   } | null;
 }) {
   if (liveSnapshot) {
@@ -684,8 +689,8 @@ function OperatingModeInfoCard({
 function OperatingModesSection({ activeMode, controlMode }: { activeMode: string; controlMode: AgentControlMode }) {
   const activeKey = normalizeModeKey(activeMode);
   const phaseNote = isAgentControlActive(controlMode)
-    ? "The agent automatically chooses and applies the best mode on your inverter."
-    : "Read-only mode — the agent suggests operating modes but cannot change your inverter until you activate agent control.";
+    ? "You've saved an agent control preference. Automatic inverter control is not live yet — the agent suggests operating modes only."
+    : "Read-only mode — the agent suggests operating modes and cannot change your inverter. Saving a preference does not turn on automatic control.";
   return (
     <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-5">
       <h2 className="text-lg font-medium text-emerald-400">Operating Modes</h2>
@@ -985,8 +990,8 @@ export function Dashboard({
     (awaitingLiveData
       ? "Preparing your first readings — suggestions appear once live data arrives"
       : "No decision recorded yet");
-  const dataSource = snapshot?.data_source ?? "simulated";
-  const isLiveData = dataSource === "supabase" || dataSource === "live";
+  const liveBadge = liveBadgeState(lastReadingAt);
+  const ownerLabel = ownerHouseholdLabel(household?.household_id);
 
   const proposedMode = decision?.reasoning?.proposal?.mode;
   const finalMode = decision?.reasoning?.final?.mode ?? decision?.mode;
@@ -1012,9 +1017,12 @@ export function Dashboard({
     : "—";
   const savingsHint = !dollarsPriced
     ? "Monitoring only — tariff not set"
-    : snapshot?.data_quality_note
-      ? `${snapshot.data_quality_note} • Ergon 12D TOU + 6c FIT`
-      : "Calculated from your live solar + battery data + Ergon tariffs";
+    : snapshot?.yesterday_savings_aud != null
+      ? buildSavingsHint({
+          batteryDischargeAud: snapshot.yesterday_battery_discharge_aud,
+          exportAud: snapshot.yesterday_export_aud,
+        })
+      : snapshot?.data_quality_note ?? ESTIMATED_DOLLAR_SENTENCE;
 
   return (
     <div className="space-y-6 bg-slate-950 p-6 text-slate-100">
@@ -1030,7 +1038,7 @@ export function Dashboard({
         <div>
           <h1 className="text-2xl font-semibold text-emerald-400">Aussie Grid Pilot Dashboard</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Mackay pilot — {isAgentControlActive(agentControlMode) ? "Agent control active" : pilotPhaseLabel(pilotPhase)}
+            Mackay pilot — {isAgentControlActive(agentControlMode) ? agentControlLabel(agentControlMode) : pilotPhaseLabel(pilotPhase)}
           </p>
           {household && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1049,7 +1057,7 @@ export function Dashboard({
                 </p>
               ) : (
                 <p className="text-sm text-slate-300">
-                  {household.household_id}
+                  {ownerLabel ?? "Your household"}
                   {household.is_test ? " · test home" : ""} · {household.status}
                   {household.inverter_make ? ` · ${household.inverter_make}` : ""}
                 </p>
@@ -1066,15 +1074,17 @@ export function Dashboard({
 
           <span
             className={`rounded-full px-3 py-1 text-xs font-medium ${
-              isLiveData
+              liveBadge.kind === "live"
                 ? "bg-emerald-900/60 text-emerald-300"
-                : awaitingLiveData
-                  ? "bg-sky-900/50 text-sky-200"
-                  : "bg-amber-900/40 text-amber-200"
+                : liveBadge.kind === "stale"
+                  ? "bg-amber-900/40 text-amber-200"
+                  : awaitingLiveData
+                    ? "bg-sky-900/50 text-sky-200"
+                    : "bg-amber-900/40 text-amber-200"
             }`}
           >
-            {isLiveData
-              ? "Live data"
+            {liveBadge.kind !== "none"
+              ? liveBadge.label
               : awaitingLiveData
                 ? "Preparing live data"
                 : "Sample data for now"}
@@ -1129,11 +1139,13 @@ export function Dashboard({
             <div className="mt-3 grid gap-3 grid-cols-2 sm:grid-cols-4">
               <MetricCard
                 label="Battery level"
-                value={hasLiveSnapshot && snapshot ? `${snapshot.battery_soc.toFixed(0)}%` : "—"}
+                value={hasLiveSnapshot && snapshot ? formatSocPct(snapshot.battery_soc) : "—"}
                 hint={
-                  hasLiveSnapshot
-                    ? "How full your home battery is right now"
-                    : "Appears after the first live data pull"
+                  !hasLiveSnapshot
+                    ? "Appears after the first live data pull"
+                    : snapshot?.battery_soc == null
+                      ? "Not on the latest reading"
+                      : "How full your home battery is right now"
                 }
               />
               <MetricCard
@@ -1154,9 +1166,11 @@ export function Dashboard({
                 label="Grid flow"
                 value={hasLiveSnapshot && snapshot ? formatGridFlow(snapshot.grid_kw) : "—"}
                 hint={
-                  hasLiveSnapshot
-                    ? "Whether you're importing from or exporting to the grid"
-                    : undefined
+                  !hasLiveSnapshot
+                    ? undefined
+                    : snapshot?.grid_kw == null
+                      ? "Your inverter feed did not report grid flow for this reading"
+                      : "Whether you're importing from or exporting to the grid"
                 }
               />
             </div>
