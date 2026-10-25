@@ -1,8 +1,8 @@
 ﻿/**
  * Aussie Grid — Vite Config
  * File: vite.config.ts
- * Version: v0.1.2.18
- * Updated: 28 Aug 2026 — bake VITE_PILOT_INVITE_CODE for Login Create account.
+ * Version: v0.1.2.19
+ * Updated: 26 Oct 2026 — do not inline a pilot invite code into the client.
  */
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
@@ -20,7 +20,6 @@ const SUPABASE_ENV_KEYS = [
   "VITE_SUPABASE_PUBLISHABLE_KEY",
   "SUPABASE_ANON_KEY",
   "SUPABASE_PUBLISHABLE_KEY",
-  "VITE_PILOT_INVITE_CODE",
 ] as const;
 
 /** Merge Vercel/CI process.env over file-based env so production builds never bake empty creds. */
@@ -57,13 +56,13 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
-    // Bake Supabase creds + invite code into the client bundle from env.
+    // Bake Supabase URL + publishable/anon key into the client bundle.
+    // Do not define VITE_PILOT_INVITE_CODE. Vite would inline it, and a
+    // browser compare can be skipped by calling signUp directly.
+    // The invite is PILOT_INVITE_CODE on the Edge Functions. See .env.example.
     define: {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
       "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabaseAnonKey),
-      "import.meta.env.VITE_PILOT_INVITE_CODE": JSON.stringify(
-        sanitizeEnv(env.VITE_PILOT_INVITE_CODE)
-      ),
     },
     build: {
       rolldownOptions: {

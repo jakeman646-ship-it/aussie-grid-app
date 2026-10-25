@@ -1,16 +1,14 @@
 /**
  * Aussie Grid — Login
  * File: src/components/Login.tsx
- * Version: v0.1.3.3
- * Updated: 29 Aug 2026 — invite-gated signup toggle; account ≠ connected.
+ * Version: v0.1.3.4
+ * Updated: 26 Oct 2026 — invite is checked by pilot-signup, not in the browser.
  */
 import { useState } from "react";
+import { signUpWithPilotInvite } from "../lib/api/pilotSignup";
 import { supabase } from "../lib/supabase";
 
 type AuthMode = "signin" | "signup";
-
-const INVITE_CODE =
-  (import.meta.env.VITE_PILOT_INVITE_CODE as string | undefined)?.trim() || "VOLUNTEER";
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -28,10 +26,6 @@ const labelStyle: React.CSSProperties = {
   marginBottom: "8px",
   fontWeight: 500,
 };
-
-function inviteMatches(entered: string): boolean {
-  return entered.trim().toUpperCase() === INVITE_CODE.toUpperCase();
-}
 
 export default function Login() {
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -88,29 +82,22 @@ export default function Login() {
       setError("Passwords do not match.");
       return;
     }
-    if (!inviteMatches(inviteCode)) {
-      setError("Invite code is wrong. Ask Aussie Grid for a pilot invite.");
+    if (!inviteCode.trim()) {
+      setError("Enter your pilot invite code.");
       return;
     }
 
     setLoading(true);
 
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: trimmedEmail,
-      password,
-    });
-
-    if (signUpError) {
-      setError(signUpError.message);
+    const result = await signUpWithPilotInvite(trimmedEmail, password, inviteCode);
+    if (!result.ok) {
+      setError(result.message);
       setLoading(false);
       return;
     }
 
-    const identities = data.user?.identities ?? [];
-    const hasSession = Boolean(data.session);
-
     // Confirm-email, or existing user (Supabase returns empty identities).
-    if (!hasSession || identities.length === 0) {
+    if (result.needsEmailConfirm) {
       setInfo("Check your email to confirm, then sign in. You are not in the app yet.");
       setMode("signin");
       setPassword("");
@@ -381,6 +368,9 @@ export default function Login() {
                 autoComplete="off"
                 style={inputStyle}
               />
+              <p style={{ color: "#64748b", fontSize: "12px", margin: "8px 0 0 0" }}>
+                Aussie Grid checks this when the account is created.
+              </p>
             </div>
 
             {error && (
