@@ -7,6 +7,9 @@
  * (see requestSungrowRenewLink). There is no Tesla equivalent in this repo.
  * Until a server-side Tesla owner-authorize flow (or a server-side secret
  * manager) exists, Tesla requests may store only non-secret metadata.
+ *
+ * Database enforcement (not applied by this app deploy):
+ * supabase/manual/block_client_account_password.sql
  */
 
 /** Columns that would store a recoverable credential if the anon client sent them. */
