@@ -1,10 +1,9 @@
 /**
  * Aussie Grid — Connection request approve/reject API
  * File: src/lib/api/approveConnectionRequest.ts
- * Version: v0.1.2.25
- * Updated: 11 Jul 2026 — route approve/reject through backend (service_role);
- *          anon client must not UPDATE pilot_connection_requests / pilot_households
- *          after harden_connection_rls.sql v1.1.
+ * Version: v0.1.2.26
+ * Updated: 26 Oct 2026 — drop account_password from the client row type.
+ *          Approve/reject still goes through the backend (service_role).
  */
 
 export interface ConnectionRequestRow {
@@ -12,7 +11,6 @@ export interface ConnectionRequestRow {
   household_id: string;
   site_id: string;
   account_email: string;
-  account_password?: string | null;
   inverter_brand: string | null;
   inverter_serial?: string | null;
   notes?: string | null;
@@ -57,8 +55,8 @@ export function getTeslaMissingFields(req: ConnectionRequestRow): string[] {
   const missing: string[] = [];
   if (!req.site_id?.trim()) missing.push("Energy Site ID");
   if (!req.account_email?.trim()) missing.push("Tesla account email");
-  // account_password is not readable via anon/authenticated after harden_connection_rls.sql;
-  // credential transfer must use service_role (backend / CEO dashboard).
+  // The anon client must not read or write Tesla account passwords.
+  // Owner authorize has to live on the server (Sungrow uses /auth/sungrow/renew-link).
   return missing;
 }
 

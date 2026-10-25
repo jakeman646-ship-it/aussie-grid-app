@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — ConnectInverter
  * File: src/components/ConnectInverter.tsx
- * Version: v0.1.5.1
- * Updated: 29 Aug 2026 — optional bill rates after 4-digit postcode; NSW still unpriced.
+ * Version: v0.1.5.2
+ * Updated: 26 Oct 2026 — Tesla: no password field. Non-secret metadata only.
  */
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { AppVersionBadge } from "@/components/common/AppVersionBadge";
@@ -32,7 +32,6 @@ interface FormData {
   householdLabel: string;
   supplyPhase: SupplyPhase;
   accountEmail: string;
-  accountPassword: string;
   siteId: string;
   inverterSerial: string;
   notes: string;
@@ -113,10 +112,11 @@ const INVERTER_COPY: Record<
     steps: [
       "Log into your Tesla account (app or tesla.com)",
       "Open your energy site and copy the Site ID",
-      "Enter your Tesla account email and password below so we can request read-only access",
-      "We'll review and activate read-only data access on your behalf.",
+      "Enter your Tesla account email and Energy Site ID below",
+      "We save those details for review. Your Tesla password is not collected.",
     ],
-    successVerify: "We verify your Site ID and request read-only access from Tesla",
+    successVerify:
+      "We verify your Site ID and email. We do not take your Tesla password",
   },
 };
 
@@ -124,7 +124,6 @@ const EMPTY_FORM: FormData = {
   householdLabel: "",
   supplyPhase: "1",
   accountEmail: "",
-  accountPassword: "",
   siteId: "",
   inverterSerial: "",
   notes: "",
@@ -282,7 +281,6 @@ export function ConnectInverter({
 
   const handleInverterChange = (make: InverterMake) => {
     setInverterMake(make);
-    setFormData((prev) => ({ ...prev, accountPassword: "" }));
     if (error) setError(null);
   };
 
@@ -317,11 +315,8 @@ export function ConnectInverter({
       setError("Please enter a valid email address.");
       return false;
     }
-    // Sungrow: password not collected — OAuth / owner Accept is the production path.
-    if (inverterMake === "Tesla" && !formData.accountPassword.trim()) {
-      setError("Please enter your Tesla account password.");
-      return false;
-    }
+    // Neither OEM collects a password here. Sungrow owner approval is
+    // /auth/sungrow/renew-link. Tesla has no authorize client in this repo yet.
     // Location fields are recommended only — never block submit.
     return true;
   };
@@ -340,9 +335,6 @@ export function ConnectInverter({
         phaseCount: Number(formData.supplyPhase) as 1 | 3,
         siteId: formData.siteId,
         accountEmail: formData.accountEmail,
-        // Sungrow: never post a password — owner Accept / OAuth is the real path.
-        accountPassword:
-          inverterMake === "Tesla" ? formData.accountPassword : undefined,
         inverterSerial: formData.inverterSerial,
         notes: formData.notes,
         currentHouseholdId,
@@ -782,27 +774,15 @@ export function ConnectInverter({
                       required for ongoing monitoring.
                     </p>
                   )}
-                </div>
-
-                {inverterMake === "Tesla" && (
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                      Tesla account password <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      value={formData.accountPassword}
-                      onChange={(e) => handleInputChange("accountPassword", e.target.value)}
-                      placeholder="Your Tesla account password"
-                      autoComplete="current-password"
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-                      required
-                    />
-                    <p className="mt-1 text-xs text-slate-500">
-                      Used only to set up read-only access. Stored securely and never shared.
+                  {inverterMake === "Tesla" && (
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+                      Your Tesla password is not collected. This request stores your email and
+                      Energy Site ID for review. Owner sign-in with Tesla (the same idea as
+                      iSolarCloud approval) is not in this form yet — it has to happen on the
+                      server, not in the browser.
                     </p>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-300">
