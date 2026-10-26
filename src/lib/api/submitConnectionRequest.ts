@@ -1,8 +1,8 @@
 /**
  * Aussie Grid — Connection request submit helper
  * File: src/lib/api/submitConnectionRequest.ts
- * Version: v0.1.5.0
- * Updated: 29 Aug 2026 — owner-entered retail_* for any DNSP (¢ UI → store $/kWh).
+ * Version: v0.1.5.1
+ * Updated: 26 Oct 2026 — never send account_password from the anon client.
  */
 import {
   getSupabaseConfigIssue,
@@ -11,6 +11,7 @@ import {
   submitTimeout,
   supabase,
 } from "@/lib/supabase";
+import { omitRecoverableSecrets } from "@/lib/api/connectionSecrets";
 import {
   defaultTariffProfile,
   lookupDnsp,
@@ -26,7 +27,6 @@ export interface SubmitConnectionRequestInput {
   phaseCount: 1 | 3;
   siteId: string;
   accountEmail: string;
-  accountPassword?: string;
   inverterSerial?: string;
   notes?: string;
   currentHouseholdId?: string;
@@ -67,7 +67,6 @@ const OPTIONAL_REQUEST_COLUMNS = [
   "retail_fit_rate",
   "phase_count",
   "inverter_serial",
-  "account_password",
   "notes",
 ] as const;
 
@@ -175,6 +174,12 @@ function buildPayload(
   householdId: string,
   input: SubmitConnectionRequestInput
 ): Record<string, unknown> {
+  // TODO(tesla-owner-auth): Sungrow never stores an owner password. Production
+  // approval is POST /auth/sungrow/renew-link, which mints an iSolarCloud
+  // authorize URL. This repo has no Tesla Fleet / owner-authorize client.
+  // Until that server-side flow (or another server-side secret manager)
+  // exists, do not add account_password back. Anon may store email, Site ID,
+  // phase, serial, notes, and location only.
   const locationFields = buildLocationFields(input);
   const payload: Record<string, unknown> = {
     household_id: householdId,
@@ -194,11 +199,7 @@ function buildPayload(
   const serial = input.inverterSerial?.trim();
   if (serial) payload.inverter_serial = serial;
 
-  if (input.accountPassword?.trim()) {
-    payload.account_password = input.accountPassword;
-  }
-
-  return payload;
+  return omitRecoverableSecrets(payload);
 }
 
 function errorMessage(error: unknown): string {
@@ -431,17 +432,16 @@ async function updatePendingRequest(
   payload: Record<string, unknown>,
   flowSignal: AbortSignal
 ): Promise<PostgrestError | null> {
-  let working: Record<string, unknown> = {
+  let working: Record<string, unknown> = omitRecoverableSecrets({
     site_id: payload.site_id,
     account_email: payload.account_email,
     inverter_brand: payload.inverter_brand,
     phase_count: payload.phase_count,
     notes: payload.notes ?? null,
     inverter_serial: payload.inverter_serial ?? null,
-    account_password: payload.account_password ?? null,
     requested_at: payload.requested_at,
     status: "pending_review",
-  };
+  });
 
   for (const key of HOUSEHOLD_SYNC_KEYS) {
     if (key in payload) working[key] = payload[key];
@@ -514,7 +514,7 @@ async function insertWithOptionalDrop(
   payload: Record<string, unknown>,
   flowSignal: AbortSignal
 ): Promise<PostgrestError | null> {
-  let working = { ...payload };
+  let working = omitRecoverableSecrets({ ...payload });
   for (let i = 0; i < OPTIONAL_REQUEST_COLUMNS.length + 2; i++) {
     const { error } = await runWithNetworkRetry(async () =>
       supabase
